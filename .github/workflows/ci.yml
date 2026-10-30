@@ -76,7 +76,7 @@ jobs:
           ALBRA_ADMIN_PASSWORD: ci-ephemeral-admin-pass-1234
         run: |
           echo "=== Clean-room verification on commit ${{ github.sha }} ==="
-          git clone https://github.com/ALBRA8/DESPACHO-JURIDICO.git fresh
+          git clone https://github.com/ALBRA8/ABOGADO-BASE.git fresh
           cd fresh
           git checkout ${{ github.sha }}
           echo "=== Verified commit ==="
@@ -85,9 +85,9 @@ jobs:
           . .venv/bin/activate
           pip install -e ".[dev]"
           echo "=== Lint ==="
-          ruff check albra/ tests/
+          ruff check albra/ tests/ src/
           echo "=== Tests ==="
           pytest -v --tb=short
-          echo "=== CLI smoke ==="
-          albra info | head -5
+          echo "=== Module import smoke ==="
+          python -c "from albra.identity.agent import Agent; from albra.lawyer.exam import LawyerExam; from albra.knowledge.colombia.corpus_pilot.real_corpus_v14 import ALL_DOCUMENTS_V14; print(f'ABOGADO-BASE modules OK — corpus {len(ALL_DOCUMENTS_V14)} docs')"
           echo "=== Clean-room PASS on commit ${{ github.sha }} ==="
