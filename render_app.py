@@ -5,18 +5,18 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-from albra_seed import Runtime, SeedConfig, create_app
-from albra_seed.approvals.engine import ApprovalEngine
-from albra_seed.core.identity import AgentIdentity
-from albra_seed.core.types import PolicyDecision, RiskLevel
-from albra_seed.firewall.firewall import ActionFirewall, FirewallRule
-from albra_seed.policy.engine import PolicyEngine
-from albra_seed.policy.rules import PolicyRule, PolicyRuleSet
-from albra_seed.runtime.agent import Agent
-from albra_seed.runtime.lifecycle import LifecyclePhase
-from albra_seed.security.auth import AuthPrincipal
-from albra_seed.security.permissions import PermissionRegistry
-from albra_seed.security.roles import Role, RoleRegistry
+from albra import Runtime, SeedConfig, create_app
+from albra.approvals.engine import ApprovalEngine
+from albra.core.identity import AgentIdentity
+from albra.core.types import PolicyDecision, RiskLevel
+from albra.firewall.firewall import ActionFirewall, FirewallRule
+from albra.policy.engine import PolicyEngine
+from albra.policy.rules import PolicyRule, PolicyRuleSet
+from albra.runtime.agent import Agent
+from albra.runtime.lifecycle import LifecyclePhase
+from albra.security.auth import AuthPrincipal
+from albra.security.permissions import PermissionRegistry
+from albra.security.roles import Role, RoleRegistry
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -136,7 +136,7 @@ else:
 
 # Providers (Groq, NVIDIA NIM, OpenAI)
 configured_providers: list[str] = []
-from albra_seed.providers.openai_provider import OpenAIProvider
+from albra.providers.openai_provider import OpenAIProvider
 
 groq_key = os.environ.get("GROQ_API_KEY")
 if groq_key:
