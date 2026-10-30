@@ -89,8 +89,8 @@ class Settings:
     """
 
     # Identity
-    agent_name: str = field(default_factory=lambda: str(_env("ALBRA_AGENT_NAME", "DESPACHO JURÍDICO DIGITAL ALBRA")))
-    agent_version: str = field(default_factory=lambda: str(_env("ALBRA_AGENT_VERSION", "1.6.0")))
+    agent_name: str = field(default_factory=lambda: str(_env("ALBRA_AGENT_NAME", "ABOGADO BASE ALBRA")))
+    agent_version: str = field(default_factory=lambda: str(_env("ALBRA_AGENT_VERSION", "1.0.0")))
     environment: str = field(default_factory=lambda: str(_env("ALBRA_ENVIRONMENT", "development")))
 
     # Runtime

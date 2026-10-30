@@ -230,6 +230,7 @@ class LegalKnowledgeEngine:
                 status=c.provenance.get("status", "vigente"),
                 source_url=c.provenance.get("source_url", ""),
                 is_current=c.is_current,
+                content_hash=c.provenance.get("content_hash", ""),
             ))
         return citations
 

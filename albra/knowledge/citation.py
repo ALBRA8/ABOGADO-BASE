@@ -46,12 +46,16 @@ class Citation:
     status: str = "vigente"
     source_url: str = ""
     is_current: bool = True
+    # Migración de conocimiento: SHA-256 del contenido citado
+    # (trazabilidad completa hacia la fuente, regla de provenance).
+    content_hash: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "document_id": self.document_id,
             "source_tier": self.source_tier,
             "authority": self.authority,
+            "content_hash": self.content_hash,
             "document_type": self.document_type,
             "citation_text": self.citation_text,
             "snippet": self.snippet,

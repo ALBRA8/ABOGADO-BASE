@@ -1,5 +1,5 @@
 """
-ALBRA - DESPACHO JURÍDICO DIGITAL
+ALBRA - ABOGADO BASE (identidad del agente jurídico)
 Agente Base V1.0
 
 Organismo completo con 30 órganos del ADN ALBRA.

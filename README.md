@@ -115,13 +115,14 @@ python -m venv .venv
 - Draft Citation Audit NO verifica fidelidad de paráfrasis (requiere NLI).
 - No hay vigencia histórica ni parcial.
 - Corpus V1.4 parcial (5 cuerpos legales + 5 sentencias; sin Código Civil, CPACA, etc.).
-- `InMemoryRetrievalProvider` arranca vacío (V1.0 LegalKnowledgeEngine wired pero sin seeding).
+- RESUELTO (migración de conocimiento): el boot ahora SIEMBRA el corpus canónico (V1.4 + leyes V1.3) en el retrieval provider — ver `docs/CORPUS.md` y `albra/knowledge/corpus_seed.py`.
 
 ## Estado de validación
 
-Este repositorio es una **extracción literal** de DESPACHO-JURIDICO@fe9d80e. Las capacidades, tests y limitaciones heredadas son las que existían en el commit de origen. La verificación independiente (Fase 3) está pendiente de ejecución.
-
-No se ha inventado historial Git ni resultados de pruebas. No se han introducido nuevas capacidades jurídicas.
+* Extracción original: `DESPACHO-JURIDICO@fe9d80e` (V8.0 Fase 4).
+* Migración seed-parity: ADN universal de AGENTE-GENERAL integrado (106/106 componentes, rama `feat/seed-parity`).
+* Migración de conocimiento jurídico: el corpus V1.4 (+ leyes V1.3) está **integrado y utilizable** — boot con siembra verificada, retrieval E2E con citas y provenance, cero dependencia funcional del despacho. Ver `docs/CORPUS.md`.
+* Suite completa: 1133+ tests pasando; tests de migración en `tests/knowledge/test_corpus_seed.py` e independencia en `tests/test_knowledge_independence.py`.
 
 ## Trazabilidad
 

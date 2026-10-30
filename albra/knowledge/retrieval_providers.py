@@ -263,6 +263,9 @@ class InMemoryRetrievalProvider(RetrievalProvider):
                 "norm_id": norm.id,
                 "article_id": art.id,
                 "source_url": norm.source_url,
+                # Migración de conocimiento: el hash SHA-256 del contenido
+                # viaja con el candidato (trazabilidad hacia la fuente).
+                "content_hash": norm.content_hash,
                 "effective_from": str(norm.effective_from) if norm.effective_from else None,
                 "effective_until": str(norm.effective_until) if norm.effective_until else None,
                 "status": norm.status,
@@ -284,6 +287,7 @@ class InMemoryRetrievalProvider(RetrievalProvider):
             is_current=is_current,
             retrieved_at=time.time(),
             provenance={
+                "content_hash": j.content_hash,
                 "court": j.court,
                 "file_number": j.file_number,
                 "decision_date": str(j.decision_date) if j.decision_date else None,

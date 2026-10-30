@@ -39,7 +39,7 @@ class Agent:
     async def boot(self) -> None:
         if self._booted:
             return
-        self.log.info("albra.boot.start", agent=self.identity.codename, version="1.6.0")
+        self.log.info("albra.boot.start", agent=self.identity.codename, version=self.identity.version)
 
         # Imports diferidos para evitar circular
         from albra.audit.log import AuditLog
@@ -126,10 +126,29 @@ class Agent:
 
         # P0-1 FIX: Wire LegalKnowledgeEngine al organismo
         # (órgano del Runtime - NO es autoridad paralela)
+        # Migración de conocimiento: el boot SIEMBRA el corpus jurídico
+        # canónico (V1.4 + leyes V1.3) en el provider — la ruta real es
+        # corpus en disco → ingestión → retrieval → engine → abogado.
+        # Si la siembra falla, el abogado arranca igual (fail-open para
+        # disponibilidad) y la política de abstención protege las
+        # respuestas sin conocimiento.
+        from albra.knowledge.corpus_seed import build_seeded_retriever
         from albra.knowledge.legal_engine import LegalKnowledgeEngine
         from albra.knowledge.retrieval import HybridRetriever
         from albra.knowledge.retrieval_providers import InMemoryRetrievalProvider
-        legal_retriever = HybridRetriever(provider=InMemoryRetrievalProvider())
+        try:
+            legal_retriever, corpus_report = await build_seeded_retriever()
+            self._organs["legal_corpus_report"] = corpus_report.as_dict()
+            self.log.info(
+                "albra.boot.corpus_seeded",
+                corpus_version=corpus_report.corpus_version,
+                documents=corpus_report.ingested,
+                hash_mismatches=len(corpus_report.skipped_hash_mismatch),
+                stats=corpus_report.stats,
+            )
+        except Exception as e:  # noqa: BLE001
+            self.log.warning("albra.boot.corpus_seed_failed", error=str(e))
+            legal_retriever = HybridRetriever(provider=InMemoryRetrievalProvider())
         legal_engine = LegalKnowledgeEngine(
             retriever=legal_retriever,
             evidence_chain=self._organs["evidence"],

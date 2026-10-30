@@ -73,7 +73,7 @@ from typing import Any, Awaitable
 # Bootstrap: make `albra` importable from ANY cwd (clone-like).
 _HERE = Path(__file__).resolve().parent
 _PROJECT_ROOT = _HERE.parent
-_SRC = _PROJECT_ROOT / "src"
+_SRC = _PROJECT_ROOT  # layout plano de ABOGADO-BASE (sin src/)
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
@@ -202,8 +202,8 @@ async def _bootstrap_runtime() -> Any:
     """Build a fresh Runtime + ProviderRouter (CORE_ONLY)."""
     from albra.core.config import SeedConfig
     from albra.providers.mock import MockProvider
-    from albra.providers.registry import ProviderRegistry
-    from albra.providers.router import ProviderRouter
+    from albra.providers.seed_registry import ProviderRegistry
+    from albra.providers.seed_router import ProviderRouter
     from albra.runtime.seed.runtime import (
         COMPONENT_PROVIDER_ROUTER,
         Runtime,
@@ -285,7 +285,9 @@ def check_test_run(rep: Report) -> None:
     """5. TEST-RUN: invoke pytest and parse the summary line."""
     proc = subprocess.run(
         [sys.executable, "-m", "pytest", str(_PROJECT_ROOT / "tests"),
-         "--tb=short", "-q", "--no-header", "--color=no"],
+         # NOTA: sin -q — pytest 9 suprime el conteo final con -q cuando
+         # todo pasa; la verbosidad por defecto siempre imprime "N passed".
+         "--tb=short", "--color=no", "-ra"],
         cwd=str(_PROJECT_ROOT),
         env=_sanitize_env({**os.environ, "PYTHONPATH": str(_SRC)}),
         capture_output=True, text=True, timeout=300,
@@ -375,7 +377,7 @@ def check_golden_flows(rep: Report) -> None:
     if str(_PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(_PROJECT_ROOT))
     try:
-        from tests.golden import test_golden_flows as gf  # type: ignore
+        from tests.seed.golden import test_golden_flows as gf  # type: ignore
     except ImportError as exc:
         rep.add(CheckResult("10. GOLDEN-FLOWS-CHECK (import)", False,
                             details=f"ImportError: {exc}"))
@@ -459,7 +461,7 @@ def check_memory(rep: Report) -> None:
 def check_audit(rep: Report) -> None:
     """14. AUDIT-CHECK: tamper-evident chain validates + detects tampering."""
     try:
-        from albra.audit.tamper_evident import TamperEvidentAuditLog
+        from albra.audit.seed_tamper_evident import TamperEvidentAuditLog
         log = TamperEvidentAuditLog()
         for i in range(3):
             log.append({"action": f"step-{i}", "actor": "probe"})
