@@ -52,8 +52,8 @@ def test_seed_carga_corpus_canonico():
     assert report.skipped_hash_mismatch == []
     assert report.rejected == []
     stats = report.stats
-    assert stats["norms"] >= 7          # Constitución + 4 leyes/códigos V1.4 + 2 leyes V1.3
-    assert stats["articles"] >= 2000    # 2083 artículos reales
+    assert stats["norms"] == 7          # Constitución + 4 leyes/códigos V1.4 + 2 leyes V1.3
+    assert stats["articles"] == 2200    # 2107 arts. V1.4 + 93 arts. Ley 100/80 V1.3
     assert stats["jurisprudence"] == 5  # 5 sentencias reales Corte Constitucional
 
 
@@ -180,7 +180,7 @@ def test_raw_bytes_v14_preservados_en_disco():
 
 
 def test_corpus_v14_estadisticas_coherentes():
-    """V14_STATS declara 5 documentos normativos + 5 sentencias (2083 arts)."""
+    """V14_STATS declara 5 documentos normativos + 5 sentencias (2107 arts)."""
     from albra.knowledge.colombia.corpus_pilot.real_corpus_v14 import V14_STATS
 
     assert V14_STATS["v14_documents"] == 5          # 5 documentos normativos V1.4

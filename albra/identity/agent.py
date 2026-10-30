@@ -129,9 +129,18 @@ class Agent:
         # Migración de conocimiento: el boot SIEMBRA el corpus jurídico
         # canónico (V1.4 + leyes V1.3) en el provider — la ruta real es
         # corpus en disco → ingestión → retrieval → engine → abogado.
-        # Si la siembra falla, el abogado arranca igual (fail-open para
-        # disponibilidad) y la política de abstención protege las
-        # respuestas sin conocimiento.
+        #
+        # Política de fallo (dos niveles, documentada en docs/CORPUS.md §3):
+        #   Nivel 1 — integridad: fail-closed POR DOCUMENTO. Un hash
+        #     inválido impide sembrar ESE documento y queda reportado.
+        #   Nivel 2 — disponibilidad del boot: fail-open. Si la siembra
+        #     completa falla, el abogado arranca igual con un provider
+        #     VACÍO y el organ "legal_corpus_report" marcado
+        #     seed_failed=True. El sistema NO es fail-closed global a
+        #     nivel de arranque; lo que evita afirmaciones sin
+        #     conocimiento es el fail-closed de NIVEL RESPUESTA
+        #     (abstención sin evidencia en LegalKnowledgeEngine +
+        #     citation audit pre-reveal).
         from albra.knowledge.corpus_seed import build_seeded_retriever
         from albra.knowledge.legal_engine import LegalKnowledgeEngine
         from albra.knowledge.retrieval import HybridRetriever
@@ -148,7 +157,16 @@ class Agent:
             )
         except Exception as e:  # noqa: BLE001
             self.log.warning("albra.boot.corpus_seed_failed", error=str(e))
+            # Estado degradado EXPLÍCITO: provider vacío (fail-open de
+            # disponibilidad) + reporte marcado para observabilidad y
+            # tests. Nunca se simula una siembra exitosa.
             legal_retriever = HybridRetriever(provider=InMemoryRetrievalProvider())
+            self._organs["legal_corpus_report"] = {
+                "corpus_version": "unseeded",
+                "seed_failed": True,
+                "ingested": 0,
+                "error": str(e),
+            }
         legal_engine = LegalKnowledgeEngine(
             retriever=legal_retriever,
             evidence_chain=self._organs["evidence"],

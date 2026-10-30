@@ -32,15 +32,25 @@ albra/knowledge/                      # 129 ficheros — motor de conocimiento
 |---|---|---|---|
 | Constitución Política de 1991 (completa) | V1.4 | 380 | secretariasenado.gov.co |
 | Ley 1564 de 2012 (CGP) | V1.4 | 627 | secretariasenado.gov.co |
-| Ley 640 de 2001 (conciliación) | V1.4 | 50 | secretariasenado.gov.co |
+| Ley 640 de 2001 (conciliación) | V1.4 | 51 | secretariasenado.gov.co |
 | Ley 906 de 2004 (CPP) | V1.4 | 564 | secretariasenado.gov.co |
-| Código Sustantivo del Trabajo (D. 2663/1950) | V1.4 | 467 | secretariasenado.gov.co |
+| Código Sustantivo del Trabajo (D. 2663/1950) | V1.4 | 485 | secretariasenado.gov.co |
 | 5 sentencias Corte Constitucional (T-001, T-002, T-003, T-100, T-445 de 2020) | V1.4 | — | corteconstitucional.gov.co |
 | Ley 100 de 1993 | V1.3 | 45 | secretariasenado.gov.co |
 | Ley 80 de 1993 | V1.3 | 48 | secretariasenado.gov.co |
 
 **Total sembrado en el retrieval: 12 documentos, 2.200 artículos, 5
-jurisprudencias.** Las versiones subsumidas (Constitución V1.1/V1.3, que
+jurisprudencias.** Reconciliación de cifras (única cifra respaldada por
+`V14_STATS` y por los tests `tests/knowledge/test_corpus_seed.py`):
+
+* **V1.4: 2.107 artículos en 10 documentos** (5 normativos: 380 + 627 +
+  51 + 564 + 485 = 2.107; más 5 sentencias sin artículos indexados).
+* Corpus canónico sembrado (V1.4 + leyes V1.3): 2.107 + 93 (Ley 100:
+  45, Ley 80: 48) = **2.200 artículos en 12 documentos**.
+* La cifra "2.083" que aparecía en documentación anterior era un total
+  desfasado y fue corregida.
+
+Las versiones subsumidas (Constitución V1.1/V1.3, que
 sólo traían un subconjunto de artículos) NO se siembran para no duplicar
 normas; permanecen en disco como historia del corpus.
 
@@ -61,6 +71,19 @@ normas; permanecen en disco como historia del corpus.
 * Las citas construidas por el `LegalKnowledgeEngine` incluyen
   `content_hash` (SHA-256 del contenido citado), `source_url`,
   `source_tier`, autoridad y vigencia.
+* **Política de fallo del seed (dos niveles — el sistema NO es
+  fail-closed global de boot):**
+  * Nivel 1 — integridad, *fail-closed por documento*: un hash
+    inválido impide sembrar ESE documento y queda reportado en
+    `CorpusSeedReport.skipped_hash_mismatch`.
+  * Nivel 2 — disponibilidad, *fail-open de arranque*: si la siembra
+    completa lanza una excepción, el boot (`identity/agent.py`)
+    continúa con un provider VACÍO y el organ `legal_corpus_report`
+    marcado `seed_failed=True` (estado degradado explícito, nunca
+    simulado como éxito).
+  * Lo que evita afirmaciones sin conocimiento es el fail-closed de
+    NIVEL RESPUESTA: abstención sin evidencia (`legal_engine.py`) +
+    citation audit pre-reveal (`citation_audit.py`).
 
 ## 4. La ruta real del conocimiento (verificada)
 

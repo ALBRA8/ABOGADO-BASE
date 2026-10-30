@@ -5,6 +5,10 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main]
+  # Permite certificar un commit exacto de un branch de feature:
+  # gh api repos/ALBRA8/ABOGADO-BASE/actions/workflows/ci.yml/dispatches \
+  #   -f ref=<branch>   →  el run corre sobre github.sha = head del branch.
+  workflow_dispatch:
 
 # CI corre sobre el commit exacto que se está evaluando (github.sha)
 # El clean-room job clona específicamente ese commit, no main ambiguamente.
@@ -24,6 +28,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+      - name: Packaging smoke — console script entrypoint
+        # Evidencia de packaging: el entrypoint declarado en
+        # [project.scripts] (albra = "albra.cli:cli_entry") se registra
+        # y ejecuta en una instalación real.
+        run: |
+          albra --version
+          python -c "from importlib.metadata import entry_points; eps=[e for e in entry_points(group='console_scripts') if e.name=='albra']; assert eps and eps[0].value=='albra.cli:cli_entry', eps; print('console-script OK:', eps[0].value)"
       - name: Lint (fail-on-error)
         run: |
           ruff check albra/ tests/

@@ -66,6 +66,7 @@ El objetivo: separar al abogado (agente jurídico) de la oficina (despacho jurí
 - **Files** — `albra/files/` (tracker)
 - **Workflows** — `albra/workflows/` (engine, sops, graph)
 - **Audit-core** — `albra/audit/` (log, tamper_evident, install_log — NO matter_audit)
+- **CLI** — `albra/cli/` (CLI universal por paquete, argparse, sin comandos de dominio; entrypoint `albra` → `albra.cli:cli_entry` en `pyproject.toml`)
 
 ## Componentes NO incluidos (pertenecen a DESPACHO-JURIDICO)
 
@@ -76,7 +77,7 @@ El objetivo: separar al abogado (agente jurídico) de la oficina (despacho jurí
 - `albra/documents/` — redline de documentos
 - `albra/review/` — revisión tabular
 - `albra/api/` — HTTP API FastAPI
-- `albra/cli.py` — CLI
+- `albra/cli.py` — CLI monolítico del despacho (NO migrado; el ABOGADO-BASE tiene su propio CLI universal en `albra/cli/`, verificado como console-script `albra`)
 - `albra/audit/matter_audit.py` — auditoría de expedientes
 - `data/` — BDs SQLite en vivo
 - `CONTEXTO JURIDICO/` — historial del despacho

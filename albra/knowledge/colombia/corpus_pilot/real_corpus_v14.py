@@ -10,12 +10,12 @@ V1.4 changes:
   - reconstructed_text_hash = SHA-256 of the "ARTICULO N. <text>" concat.
   - provenance_status = 'VERIFIED' (upgraded from V1.3 'PARTIAL').
   - 5 new documents: Constitución completa (380 arts.), Ley 1564/2012
-    (CGP, 627 arts.), Ley 640/2001 (conciliación, 50 arts.), Ley 906/2004
-    (CPP, 564 arts.), Código Sustantivo del Trabajo (467 arts.).
+    (CGP, 627 arts.), Ley 640/2001 (conciliación, 51 arts.), Ley 906/2004
+    (CPP, 564 arts.), Código Sustantivo del Trabajo (485 arts.).
   - 5 sentencias reales Corte Constitucional (T-001/2020, T-002/2020,
     T-003/2020, T-100/2020, T-445/2020) with raw_bytes preserved.
 
-Total V1.4: 5 statutory documents (2083 articles) + 5 sentencias.
+Total V1.4: 5 statutory documents (2107 articles) + 5 sentencias.
 
 V1.3 preserved: ALL_DOCUMENTS_V13 re-exported unchanged so existing
 V1.3 consumers continue to work. V1.4 is ADDITIVE — V1.3 is not

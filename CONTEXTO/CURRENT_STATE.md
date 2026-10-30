@@ -102,7 +102,7 @@ Heredadas de DESPACHO-JURIDico@fe9d80e (V8.0 Fase 4 — ACCEPTANCE VERIFIED WITH
 - VigencyChecker false positives residuales posibles (87 → 86 modified tras Fase 4 fix).
 - Sin vigencia histórica ni parcial.
 - Corpus V1.4 parcial (5 cuerpos legales + 5 sentencias).
-- `InMemoryRetrievalProvider` arranca vacío (V1.0 LegalKnowledgeEngine wired pero sin seeding).
+- `InMemoryRetrievalProvider` — (actualizado en b508128) el boot SIEMBRA el corpus canónico V1.4+V1.3 (12 docs, 2.200 arts) vía `corpus_seed.py`. Política de fallo en dos niveles (fail-closed por documento / fail-open de disponibilidad con provider vacío + `legal_corpus_report.seed_failed=True`): ver `docs/CORPUS.md` §3.
 - Stale text fix cubre solo `exam.py` (no `citation_audit.py` docstring).
 
 ## Estado de validación

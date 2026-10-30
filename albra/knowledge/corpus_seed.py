@@ -34,6 +34,15 @@ Reglas de esta siembra (migración de conocimiento, no refactorización):
   la llamada de ingesta y el tipo original se conserva en la
   provenance (``corpus_document_type``). No se altera el corpus.
 * Sin dependencia del despacho: todo vive en ABOGADO-BASE.
+* Política de fallo en DOS niveles (no hay fail-closed global de boot):
+    - Nivel 1 — integridad (fail-closed por documento): un hash
+      inválido impide sembrar ESE documento y queda reportado.
+    - Nivel 2 — disponibilidad (fail-open de boot): si la siembra
+      completa falla, el agente arranca igual con un provider vacío y
+      el organ ``legal_corpus_report`` marcado ``seed_failed=True``.
+      Lo que evita afirmaciones sin conocimiento es el fail-closed de
+      NIVEL RESPUESTA: abstención sin evidencia (LegalKnowledgeEngine)
+      + citation audit pre-reveal (citation_audit.py).
 """
 from __future__ import annotations
 
@@ -264,6 +273,12 @@ async def build_seeded_retriever() -> tuple[HybridRetriever, CorpusSeedReport]:
     Es la pieza que el boot del agente usa para que el
     LegalKnowledgeEngine arranque CON conocimiento (no con un provider
     vacío).
+
+    Esta función NO traga errores: si la siembra falla, propaga la
+    excepción. Es el boot del agente (identity/agent.py) quien decide
+    el fallback fail-open de disponibilidad (provider vacío + reporte
+    marcado ``seed_failed=True``); ver la política de dos niveles en el
+    docstring del módulo.
     """
     provider = InMemoryRetrievalProvider()
     retriever = HybridRetriever(provider=provider)
