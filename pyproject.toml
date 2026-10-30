@@ -44,7 +44,7 @@ dev = [
 ]
 
 [project.scripts]
-albra = "albra.cli:main"
+albra = "albra.cli:cli_entry"
 
 [tool.setuptools.packages.find]
 include = ["albra*"]

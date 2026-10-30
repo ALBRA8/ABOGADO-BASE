@@ -1,0 +1,334 @@
+"""Unit tests for the api subpackage (F2-I)."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+from typing import Any
+
+import pytest
+
+pytest.importorskip("fastapi")
+from fastapi.testclient import TestClient  # type: ignore[import-untyped]
+
+from albra.api.app import create_app
+from albra.core.config import SeedConfig
+from albra.core.identity import AgentIdentity
+from albra.runtime.agent import Agent
+from albra.runtime.runtime import Runtime
+
+# =====================================================================
+# Fixtures
+# =====================================================================
+
+
+@pytest.fixture
+def runtime() -> Runtime:
+    """A Runtime with a fresh config (no env vars leaking in)."""
+    cfg = SeedConfig()
+    rt = Runtime(config=cfg)
+    return rt
+
+
+@pytest.fixture
+def app(runtime: Runtime) -> Any:
+    return create_app(runtime)
+
+
+@pytest.fixture
+def client(app: Any) -> TestClient:
+    with TestClient(app) as c:
+        yield c
+
+
+class _ExecutionAuthenticator:
+    async def verify(self, token: str | None):
+        from albra.security.auth import AuthPrincipal
+
+        if token not in {"valid-test-token", "other-test-token"}:
+            return None
+        return AuthPrincipal(
+            kind="user",
+            identity="executor-1" if token == "valid-test-token" else "executor-2",
+            roles=["executor"],
+            auth_method="test",
+            is_anonymous=False,
+        )
+
+
+def _configure_execution_auth(runtime: Runtime) -> None:
+    from albra.core.types import PolicyDecision, RiskLevel
+    from albra.policy.engine import PolicyEngine
+    from albra.policy.rules import PolicyRule, PolicyRuleSet
+    from albra.security.permissions import Permission, PermissionRegistry
+    from albra.security.roles import Role, RoleRegistry
+
+    roles = RoleRegistry()
+    roles.register(Role(role_id="executor", name="executor"))
+    permissions = PermissionRegistry(roles)
+    rules = PolicyRuleSet()
+    for action in ("execution:run", "execution:read", "diagnostics:read"):
+        permissions.register(Permission(id=action))
+        permissions.grant("executor", action)
+        rules.add(PolicyRule(
+            name=f"allow {action} API",
+            action_pattern=action,
+            actor_pattern="executor-1" if action == "execution:run" else "*",
+            risk_threshold=RiskLevel.UNKNOWN,
+            required_permission=action,
+            decision=PolicyDecision.ALLOW,
+        ))
+    runtime.register("authenticator", _ExecutionAuthenticator())
+    runtime.register("policy_engine", PolicyEngine(
+        rule_set=rules, permission_registry=permissions
+    ))
+
+
+# =====================================================================
+# create_app returns a FastAPI instance
+# =====================================================================
+
+
+def test_create_app_returns_fastapi(runtime: Runtime) -> None:
+    """create_app() returns a fastapi.FastAPI instance wired to the runtime."""
+    from fastapi import FastAPI  # type: ignore[import-untyped]
+    app = create_app(runtime)
+    assert isinstance(app, FastAPI)
+    # OpenAPI's path map is the stable public contract across FastAPI's
+    # internal router representations; newer FastAPI versions defer included
+    # routers and no longer expose every path as a direct app.routes member.
+    paths = set(app.openapi()["paths"])
+    assert "/api/v1/health" in paths
+    assert "/api/v1/readiness" in paths
+    assert "/api/v1/agent/info" in paths
+    assert "/api/v1/agent/capabilities" in paths
+    assert "/api/v1/execution" in paths
+    assert "/internal/diagnostics" in paths
+
+
+# =====================================================================
+# Health endpoint returns a dict
+# =====================================================================
+
+
+def test_health_endpoint_returns_dict(client: TestClient) -> None:
+    """GET /api/v1/health returns the runtime's health snapshot."""
+    r = client.get("/api/v1/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body, dict)
+    assert "status" in body
+    assert "phase" in body
+    assert "core_only" in body
+    assert "components" in body
+    assert "sessions" in body
+    assert "uptime_seconds" in body
+
+
+# =====================================================================
+# Readiness endpoint returns a bool
+# =====================================================================
+
+
+def test_readiness_endpoint_returns_bool(client: TestClient) -> None:
+    """GET /api/v1/readiness returns a `ready` boolean."""
+    r = client.get("/api/v1/readiness")
+    assert r.status_code == 200
+    body = r.json()
+    assert "ready" in body
+    assert isinstance(body["ready"], bool)
+    assert isinstance(body["phase"], str)
+
+
+# =====================================================================
+# Agent info endpoint returns the manifest
+# =====================================================================
+
+
+def test_agent_info_endpoint_returns_manifest(runtime: Runtime) -> None:
+    """GET /api/v1/agent/info returns the agent manifest when an agent is
+    registered; otherwise returns a minimal seed identity."""
+    # Without an agent registered.
+    app = create_app(runtime)
+    with TestClient(app) as client:
+        r = client.get("/api/v1/agent/info")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["agent_id"] == "seed"
+        assert body["name"] == "albra-seed"
+        assert body["seed_version"] == runtime.config.seed_version
+
+    # With an agent registered.
+    identity = AgentIdentity(name="test-agent")
+    agent = Agent(identity=identity, runtime=runtime)
+    app = create_app(runtime, agents={identity.agent_id: agent})
+    with TestClient(app) as client:
+        r = client.get("/api/v1/agent/info")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["agent_id"] == identity.agent_id
+        assert body["name"] == "test-agent"
+        assert body["version"] == identity.version
+
+
+# =====================================================================
+# Secrets are redacted in the diagnostics endpoint output
+# =====================================================================
+
+
+def test_secrets_are_redacted_in_config_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The diagnostics endpoint never leaks secrets; execution metadata is
+    also redacted before returning."""
+    # Set a real-looking API key in env.
+    for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GROQ_API_KEY",
+              "ZAI_API_KEY", "ALBRA_VAULT_TOKEN"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-leak-attempt-12345678901234567890")
+
+    rt = Runtime()
+    _configure_execution_auth(rt)
+    app = create_app(rt)
+    with TestClient(app) as client:
+        # The diagnostics endpoint runs the Doctor and returns its report;
+        # it should never echo secret values, even for authenticated callers.
+        r = client.get(
+            "/internal/diagnostics",
+            headers={"Authorization": "Bearer valid-test-token"},
+        )
+        assert r.status_code == 200
+        text = r.text
+        assert "sk-leak-attempt" not in text
+
+
+# =====================================================================
+# Execution endpoint round-trip (uses Mock provider fallback)
+# =====================================================================
+
+
+def test_execution_endpoint_runs_agent_and_returns_trace(runtime: Runtime) -> None:
+    """POST /api/v1/execution runs the agent; GET /api/v1/execution/{id}
+    returns the cached trace.
+
+    Since BLOQ 2 (HTTP execution perimeter closure), the endpoint requires
+    a security perimeter (firewall OR policy engine) on the Runtime. This
+    test registers a permissive ActionFirewall so the perimeter is present.
+    """
+    from albra.core.types import RiskLevel
+    from albra.firewall.firewall import ActionFirewall, FirewallRule
+    from albra.providers.mock import MockProvider
+    runtime.register_provider(MockProvider())
+    # Security perimeter: register a permissive firewall (allows anything
+    # that the agent's Mock provider emits — which is no tool calls).
+    # The perimeter itself is what matters; default-deny is still enforced
+    # by the runtime if a tool is actually attempted.
+    fw = ActionFirewall()
+    fw.add_rule(FirewallRule(
+        action_pattern="*", actor_pattern="*", decision="allow",
+        risk_threshold=RiskLevel.UNKNOWN, autonomy_required=0,
+    ))
+    runtime.register("firewall", fw)
+    _configure_execution_auth(runtime)
+
+    identity = AgentIdentity(name="exec-agent", providers=["mock"])
+    agent = Agent(identity=identity, runtime=runtime)
+    app = create_app(runtime, agents={identity.agent_id: agent})
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/v1/execution",
+            json={"input": "hello"},
+            headers={"Authorization": "Bearer valid-test-token"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["execution_id"]
+        assert body["correlation_id"]
+        # Mock provider echoes the input back.
+        assert "hello" in body["content"].lower()
+
+        # Trace lookup
+        anonymous_trace = client.get(f"/api/v1/execution/{body['execution_id']}")
+        assert anonymous_trace.status_code == 401
+        r2 = client.get(
+            f"/api/v1/execution/{body['execution_id']}",
+            headers={"Authorization": "Bearer valid-test-token"},
+        )
+        assert r2.status_code == 200
+        body2 = r2.json()
+        assert body2["execution_id"] == body["execution_id"]
+        assert body2["found"] is True
+        assert isinstance(body2["trace"], list)
+
+        # Another authenticated user with the read role still cannot inspect
+        # this principal's trace without the separate execution:read:any grant.
+        other_user = client.get(
+            f"/api/v1/execution/{body['execution_id']}",
+            headers={"Authorization": "Bearer other-test-token"},
+        )
+        assert other_user.status_code == 403
+
+
+# =====================================================================
+# Internal diagnostics endpoint returns a DiagnosticReport
+# =====================================================================
+
+
+def test_internal_diagnostics_endpoint_returns_report(runtime: Runtime) -> None:
+    """GET /internal/diagnostics requires auth/RBAC and returns the report."""
+    _configure_execution_auth(runtime)
+    with TestClient(create_app(runtime)) as client:
+        anonymous = client.get("/internal/diagnostics")
+        assert anonymous.status_code == 401
+        r = client.get(
+            "/internal/diagnostics",
+            headers={"Authorization": "Bearer valid-test-token"},
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert "generated_at" in body
+    assert "overall_status" in body
+    assert "summary" in body
+    assert "components" in body
+    assert isinstance(body["components"], list)
+
+
+# =====================================================================
+# Root index
+# =====================================================================
+
+
+def test_root_endpoint_returns_metadata(client: TestClient) -> None:
+    """GET / returns API metadata and the route prefixes."""
+    r = client.get("/")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["name"] == "albra-seed-api"
+    assert body["public_prefix"] == "/api/v1"
+    assert body["internal_prefix"] == "/internal"
+
+
+
+def test_execution_endpoint_does_not_echo_exception_secrets(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unhandled execution errors must not expose provider credentials."""
+    runtime.register("firewall", object())
+    _configure_execution_auth(runtime)
+    identity = AgentIdentity(name="error-agent")
+    agent = Agent(identity=identity, runtime=runtime)
+    secret = "sk-proj-abcdefghijklmnopqrstuvwxyz123456"
+
+    async def fail_run(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError(f"provider failed with credential {secret}")
+
+    monkeypatch.setattr(agent, "run", fail_run)
+    app = create_app(runtime, agents={identity.agent_id: agent})
+    with TestClient(app) as client:
+        response = client.post(
+        "/api/v1/execution",
+        json={"input": "hello"},
+        headers={"Authorization": "Bearer valid-test-token"},
+    )
+    assert response.status_code == 500
+    assert secret not in response.text
+    assert "execution failed: RuntimeError" in response.text

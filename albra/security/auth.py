@@ -160,3 +160,11 @@ class SecurityGate:
             raise ValueError(f"Rol inválido: {role}")
         self._users[user] = {"role": role, "password_hash": hash_password(password)}
         self.log.info("security.user.added", user=user, role=role)
+
+
+# Seed parity additions: modelo universal de principal
+from albra.security.principal import (  # noqa: E402,F401
+    Authenticator,
+    AuthPrincipal,
+    NoopAuthenticator,
+)

@@ -1,0 +1,33 @@
+"""Approvals subpackage — HITL approval engine.
+
+CRITICAL INVARIANTS:
+  * The seed NEVER auto-approves. Stale requests escalate (per policy)
+    or expire.
+  * Every decision is recorded as tamper-evident ApprovalEvidence
+    (hash-chained; tampering invalidates the chain).
+  * Escalations create a NEW approval_id; the parent is marked ESCALATED.
+  * Max-escalation cap from EscalationPolicy is enforced; exceeding it
+    auto-expires the request.
+  * Terminal states (APPROVED/REJECTED/EXPIRED) are immutable.
+"""
+
+from albra.approvals.engine import ApprovalEngine, ApprovalResult
+from albra.approvals.escalation import EscalationPolicy
+from albra.approvals.evidence import (
+    ApprovalEvidence,
+    ApprovalEvidenceStore,
+    SQLiteApprovalEvidenceStore,
+)
+from albra.approvals.request import ApprovalRequest
+from albra.approvals.sqlite_store import SQLiteApprovalStore
+
+__all__ = [
+    "ApprovalEngine",
+    "ApprovalResult",
+    "ApprovalRequest",
+    "ApprovalEvidence",
+    "ApprovalEvidenceStore",
+    "SQLiteApprovalEvidenceStore",
+    "EscalationPolicy",
+    "SQLiteApprovalStore",
+]
