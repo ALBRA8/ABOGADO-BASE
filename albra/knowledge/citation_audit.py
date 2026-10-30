@@ -74,6 +74,14 @@ _CITATION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
      re.compile(
          r"\b(?P<sent_type2>C|T|SU|SL|MP|A)-(?P<sent_num2>\d{1,4})/(?P<sent_year2>199\d|20[0-3]\d)\b"
      )),
+    # Decretos: "Decreto 2663 de 1950" (+ artículo opcional). El corpus
+    # canónico V1.4 contiene el CST como Decreto 2663 de 1950; sin este
+    # patrón, las citas a decretos no se auditable extraction-wise.
+    ("decreto_articulo",
+     re.compile(
+         r"Decreto\s+(?P<dec_num>\d{1,5})\s+de\s+(?P<dec_year>\d{4})"
+         r"(?:[,\s]+art[ií]culo\s+(?P<art_num4>\d{1,3}))?",
+         re.IGNORECASE)),
 ]
 
 # Quote pattern: texto entre comillas tipográficas o rectas de ≥10 chars
@@ -94,6 +102,13 @@ class Citation:
     # populated by CitationAuditor.audit_response for verified citations
     # only; "" means "vigency not yet computed".
     vigency_status: str = ""
+    # Cierre de extracción: diferenciación explícita de garantías.
+    #   ""                      — solo extraída (sin validar aún)
+    #   "document_only"        — documento y artículo existen en el corpus
+    #                            (la paráfrasis NO queda demostrada)
+    #   "literal_retraced"     — además, el fragmento citado aparece
+    #                            literalmente en el texto fuente
+    fidelity: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -105,6 +120,7 @@ class Citation:
             "start": self.start,
             "end": self.end,
             "vigency_status": self.vigency_status,
+            "fidelity": self.fidelity,
         }
 
 
@@ -136,10 +152,19 @@ class CitationAuditor:
     """Pipeline fail-closed de citation audit pre-reveal.
 
     Args:
-        corpus_version: "v11" (default, 12 articles) o "v12" (125 articles,
-            fetched with Playwright V2.3-E) o "v13" (125 articles with the
-            V1.3 DocumentProvenance model applied retroactively — see
-            albra.knowledge.provenance).
+        corpus_version: "v11" (default histórico, 12 articles) o "v12"
+            (125 articles, fetched with Playwright V2.3-E) o "v13" (125
+            articles with the V1.3 DocumentProvenance model applied
+            retroactively — see albra.knowledge.provenance) o "v14"
+            (CORPUS CANÓNICO: V1.4 completo + leyes V1.3 vivas = 12
+            documentos / 2.200 artículos — el mismo corpus que siembra
+            ``corpus_seed.py`` en el retrieval provider).
+
+    Alineación con el corpus canónico (cierre de extracción): las rutas
+    que requieren garantía fail-closed contra el corpus vigente del
+    agente (LawyerExam, LegalKnowledgeEngine) DEBEN usar ``v14``.
+    El default ``v11`` se conserva solo para retrocompatibilidad de los
+    datasets de evaluación históricos (phantom citations).
     """
 
     def __init__(self, *, corpus_version: str = "v11") -> None:
@@ -154,7 +179,14 @@ class CitationAuditor:
 
     def _get_corpus(self) -> list[tuple[str, dict[str, Any]]]:
         """Returns the corpus list based on corpus_version."""
-        if self.corpus_version == "v13":
+        if self.corpus_version == "v14":
+            try:
+                from albra.knowledge.corpus_seed import canonical_corpus_documents
+                return canonical_corpus_documents()
+            except ImportError:
+                self.log.warning("citation_audit.v14_unavailable_fallback_v13")
+                # Fall through to v13 if the seed module is missing.
+        if self.corpus_version in ("v13", "v14"):
             try:
                 from albra.knowledge.colombia.corpus_pilot.real_corpus_v13 import (
                     ALL_DOCUMENTS_V13,
@@ -163,7 +195,7 @@ class CitationAuditor:
             except ImportError:
                 self.log.warning("citation_audit.v13_unavailable_fallback_v12")
                 # Fall through to v12.
-        if self.corpus_version in ("v12", "v13"):
+        if self.corpus_version == "v12":
             try:
                 from albra.knowledge.colombia.corpus_pilot.real_corpus_v12 import (
                     ALL_DOCUMENTS_V12,
@@ -180,6 +212,13 @@ class CitationAuditor:
         V1.3 documents (which expose `reconstructed_text`, `provenance`, and
         `provenance_status`). For V1.1/V1.2 documents we default
         `provenance_status` to None (no provenance model was applied).
+
+        Alineación canónica (v14): cada documento se indexa por ``number``
+        Y por ``title`` (p.ej. "Decreto 2663 de 1950" y "Código Sustantivo
+        del Trabajo" apuntan al mismo doc), y las sentencias se indexan
+        además en su forma normalizada "T-001-2020" (las citas reales
+        llegan como "Sentencia T-001/2020"; la forma con slash se
+        resuelve en ``_resolve_doc``).
         """
         index: dict[str, dict[str, Any]] = {}
         for _doc_type, doc in self._get_corpus():
@@ -193,7 +232,7 @@ class CitationAuditor:
                 raw_text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
             else:
                 raw_text = ""
-            index[name] = {
+            entry = {
                 "document_type": doc["document_type"],
                 "articles": {a["number"]: a["text"] for a in doc["articles"]},
                 "raw_text": raw_text,
@@ -207,7 +246,31 @@ class CitationAuditor:
                 "effective_from": doc.get("effective_from") or doc.get("date_issued") or "",
                 "effective_until": doc.get("effective_until"),
             }
+            index[name] = entry
+            # Alineación v14: indexar también por título.
+            title = doc.get("title", "")
+            if title and title != name:
+                index.setdefault(title, entry)
         return index
+
+    def _resolve_doc(self, document_name: str) -> dict[str, Any] | None:
+        """Resuelve un nombre de documento citado a una entrada del índice.
+
+        Orden de resolución:
+        1. Match directo (number o title indexados).
+        2. Sentencia: "Sentencia T-001/2020" → "T-001-2020" (forma v14).
+        """
+        if not document_name:
+            return None
+        direct = self._index.get(document_name)
+        if direct is not None:
+            return direct
+        lowered = document_name.strip()
+        if lowered.lower().startswith("sentencia "):
+            ref = lowered[len("sentencia "):].strip()
+            normalized = ref.replace("/", "-")
+            return self._index.get(normalized)
+        return None
 
     # ===== Paso 1: extract_citations =====
 
@@ -259,6 +322,19 @@ class CitationAuditor:
                         document_type="legislacion",
                         document_name=doc_name,
                         article_number=art_num,
+                        start=match.start(),
+                        end=match.end(),
+                    ))
+                elif pattern_name == "decreto_articulo":
+                    dec_num = match.group("dec_num")
+                    dec_year = match.group("dec_year")
+                    art_num4 = match.group("art_num4")
+                    doc_name = f"Decreto {dec_num} de {dec_year}"
+                    citations.append(Citation(
+                        raw_text=match.group(0),
+                        document_type="legislacion",
+                        document_name=doc_name,
+                        article_number=art_num4,
                         start=match.start(),
                         end=match.end(),
                     ))
@@ -332,8 +408,24 @@ class CitationAuditor:
 
     # ===== Paso 2: validate_against_corpus =====
 
-    def validate_against_corpus(self, citations: list[Citation]) -> tuple[list[Citation], list[Citation], list[Citation]]:
-        """Particiona citations en (verified, unverified, rejected)."""
+    def validate_against_corpus(
+        self,
+        citations: list[Citation],
+        *,
+        snippets: dict[str, str] | None = None,
+    ) -> tuple[list[Citation], list[Citation], list[Citation]]:
+        """Particiona citations en (verified, unverified, rejected).
+
+        Args:
+            citations: citas extraídas de un texto.
+            snippets: mapa opcional ``document_name -> snippet`` con el
+                fragmento que la respuesta afirma provenir de ese
+                documento. Si se provee y hay match literal, la cita
+                queda con ``fidelity="literal_retraced"``; si el
+                documento/artículo existen pero el snippet no aparece,
+                la cita queda ``fidelity="document_only"`` (documento
+                verificado, paráfrasis NO demostrada).
+        """
         verified: list[Citation] = []
         unverified: list[Citation] = []
         rejected: list[Citation] = []
@@ -342,16 +434,78 @@ class CitationAuditor:
             if c.document_name in _REJECTED_NAMES:
                 rejected.append(c)
                 continue
-            # Check si está en corpus
-            if c.document_name not in self._index:
+            # Check si está en corpus (por number, title o forma de sentencia)
+            doc = self._resolve_doc(c.document_name)
+            if doc is None:
                 unverified.append(c)
                 continue
-            doc = self._index[c.document_name]
             if c.article_number and c.article_number not in doc["articles"]:
                 unverified.append(c)
                 continue
+            # Cierre de extracción: marcar la garantía real de la cita.
+            snippet = (snippets or {}).get(c.document_name, "")
+            c.fidelity = self._compute_fidelity(doc, c.article_number, snippet)
             verified.append(c)
         return verified, unverified, rejected
+
+    def _compute_fidelity(
+        self,
+        doc: dict[str, Any],
+        article_number: str | None,
+        snippet: str,
+    ) -> str:
+        """"document_only" si el doc/artículo existen; "literal_retraced"
+        si además el snippet aparece en el texto fuente. Sin snippet no
+        hay demostración de fidelidad semántica — NUNCA se declara.
+        """
+        if not snippet:
+            return "document_only"
+        source_text = doc["raw_text"]
+        if article_number:
+            source_text = doc["articles"].get(article_number, source_text)
+        snip = snippet.strip().lower()
+        if len(snip) >= 10 and snip in source_text.lower():
+            return "literal_retraced"
+        words = snip.split()
+        if len(words) >= 5 and " ".join(words[:5]) in source_text.lower():
+            return "literal_retraced"
+        return "document_only"
+
+    def validate_citation_direct(
+        self,
+        *,
+        document_name: str,
+        article_number: str | None,
+        snippet: str = "",
+    ) -> tuple[bool, str, str]:
+        """Valida UNA cita construida programáticamente (sin regex).
+
+        Es el punto de entrada del fail-closed pre-reveal para el
+        ``LegalKnowledgeEngine``: sus citas no se extraen del texto con
+        patrones, se construyen desde la evidencia recuperada. Esta
+        variante hace el mismo chequeo documental + retracing literal
+        sin pasar por ``extract_citations``.
+
+        Returns:
+            (in_corpus, fidelity, reason):
+            - in_corpus=False → la cita NO puede mostrarse como verificada
+              (fail-closed).
+            - fidelity: "document_only" | "literal_retraced".
+        """
+        doc = self._resolve_doc(document_name)
+        if doc is None:
+            return False, "", f"Documento '{document_name}' no está en el corpus {self.corpus_version}."
+        art = str(article_number) if article_number else ""
+        if art and art not in doc["articles"]:
+            return False, "", (
+                f"Artículo {art} no existe en '{document_name}' "
+                f"(corpus {self.corpus_version})."
+            )
+        fidelity = self._compute_fidelity(doc, art or None, snippet)
+        return True, fidelity, (
+            f"Verificada contra corpus {self.corpus_version} "
+            f"(fidelity={fidelity})."
+        )
 
     # ===== Paso 3: retrace_quotes =====
 
@@ -363,7 +517,10 @@ class CitationAuditor:
             if not c.quote:
                 passed.append(c)
                 continue
-            doc = self._index[c.document_name]
+            doc = self._resolve_doc(c.document_name)
+            if doc is None:
+                failed.append(c)
+                continue
             source_text = doc["raw_text"]
             # Si hay article_number, buscar solo en ese artículo
             if c.article_number:
@@ -401,7 +558,7 @@ class CitationAuditor:
         - Documents with effective_until set -> DEROGADO.
         - Documents not in corpus -> UNKNOWN.
         """
-        doc = self._index.get(document_name)
+        doc = self._resolve_doc(document_name)
         if not doc:
             return {
                 "status": "UNKNOWN",
@@ -470,7 +627,7 @@ class CitationAuditor:
         if require_provenance:
             still_verified: list[Citation] = []
             for c in verified:
-                doc = self._index.get(c.document_name, {})
+                doc = self._resolve_doc(c.document_name) or {}
                 if doc.get("provenance_status") == "NOT_VERIFIED":
                     provenance_blocked.append(c)
                 else:

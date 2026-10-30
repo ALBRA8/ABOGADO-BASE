@@ -36,11 +36,20 @@ def test_exam_py_no_stale_v13_in_user_facing_strings():
     src = _read_exam_py()
     # Allowed contexts: docstring of _lookup_in_corpus describing fallback,
     # and the inline comment "# V8.0 Fase 2.2: try V1.4 first, fall back to V1.3."
+    # Cierre de extracción: el corpus CANÓNICO es V1.4 + leyes V1.3 vivas
+    # (ver albra/knowledge/corpus_seed.py — 12 docs, 2.200 arts), por lo
+    # que los comentarios que documentan esa composición canónica son
+    # menciones legítimas de V1.3 (no stale).
     allowed_patterns = [
         r'"""Look up a specific article in the V1\.4 corpus \(with V1\.3 fallback\)\.',
         r'V8\.0 Fase 2\.2: updated from V1\.3 to V1\.4',
         r'V1\.3 is used as fallback if V1\.4 import fails',
         r'# V8\.0 Fase 2\.2: try V1\.4 first, fall back to V1\.3',
+        r'# citas con el corpus canónico V1\.4 \+ leyes V1\.3',
+        r'# Indica si el corpus canónico V1\.4\+V1\.3 está disponible',
+        r'# Leyes V1\.3 vivas del corpus canónico',
+        r'# NORMAS VERIFICADAS \(corpus canónico V1\.4\+V1\.3',
+        r'f"NORMAS VERIFICADAS \(corpus canónico V1\.4\+V1\.3',
     ]
     # Find all "V1.3" mentions
     v13_lines = []
@@ -83,11 +92,16 @@ def test_exam_py_step_7_prompt_uses_v14():
 
 
 def test_exam_py_step_10_prompt_uses_v14():
-    """Step 10 LLM prompt must say 'corpus V1.4' with corpus enumeration."""
+    """Step 10 LLM prompt must say 'corpus canónico V1.4+V1.3' with corpus enumeration.
+
+    Cierre de extracción: el corpus canónico del agente es V1.4 + leyes
+    V1.3 vivas (12 docs — ver albra/knowledge/corpus_seed.py), por lo
+    que el prompt enumera TAMBIÉN Ley 100 y Ley 80 (antes solo V1.4).
+    """
     src = _read_exam_py()
     # Step 10 prompt uses inline join with f-string
-    assert 'NORMAS VERIFICADAS (corpus V1.4 — Constitución/CGP/CPP/CST/Ley 640):\\n" + "\\n".join(' in src, (
-        "Step 10 prompt should enumerate V1.4 bodies with inline join"
+    assert 'NORMAS VERIFICADAS (corpus canónico V1.4+V1.3 — Constitución/CGP/CPP/CST/Ley 640/Ley 100/Ley 80):\\n" + "\\n".join(' in src, (
+        "Step 10 prompt should enumerate canonical V1.4+V1.3 bodies with inline join"
     )
 
 

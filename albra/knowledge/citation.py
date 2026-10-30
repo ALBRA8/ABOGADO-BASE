@@ -112,6 +112,14 @@ class LegalResponse:
     conflicts: list[dict[str, Any]] = field(default_factory=list)
     needs_hitl: bool = False
     execution_id: str = ""
+    # Cierre de extracción — auditoría de citas pre-reveal (hallazgo 7):
+    # resultado del fail-closed del engine contra el corpus canónico.
+    # Vacío = ruta que no ejecutó auditoría (abstenciones tempranas).
+    citation_audit: dict[str, Any] = field(default_factory=dict)
+    # Análisis jurídico estructurado (hallazgo 4 del cierre):
+    # hechos/inferencias/issues/normas/jurisprudencia/argumentos/
+    # contraargumentos/conclusión — determinista, sin LLM.
+    legal_analysis: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -125,6 +133,8 @@ class LegalResponse:
             "conflicts": self.conflicts,
             "needs_hitl": self.needs_hitl,
             "execution_id": self.execution_id,
+            "citation_audit": self.citation_audit,
+            "legal_analysis": self.legal_analysis,
         }
 
     def format_text(self) -> str:

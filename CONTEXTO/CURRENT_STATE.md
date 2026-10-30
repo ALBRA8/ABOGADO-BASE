@@ -122,3 +122,75 @@ Las capacidades y tests son los que existían en el commit de origen. La verific
 - Fase 6: cierre documental.
 
 Estas fases requieren autorización expresa antes de ejecutarse.
+
+---
+
+## Actualización: CIERRE FUNCIONAL (2026-10-30, post 6e936e16)
+
+El abogado ha completado la fase de cierre funcional sobre `feat/seed-parity`
+(SHA inicial `6e936e16a5a9deee3c6776f77be9a4e5a11be1d8`; SHA final en el
+registro de auditorías A-ABOGADO-BASE-002). Resumen del estado REAL:
+
+### Capacidades consolidadas y conectadas
+
+1. **Prueba integral del agente** (`tests/test_agent_integration.py`):
+   `Agent.boot() → corpus_seed → LegalKnowledgeEngine → Runtime →
+   Agent.process()` con corpus sembrado (12 docs / 2.200 arts),
+   evidencia real, cita + provenance + hash, abstención correcta,
+   boot degradado explícito y apagado limpio.
+2. **Razonamiento jurídico estructurado** (`albra/knowledge/legal_reasoning.py`):
+   análisis determinista sin LLM sobre la evidencia ya verificada —
+   hechos/inferencias/conclusiones separados, problemas jurídicos,
+   hechos faltantes, normas aplicables, jurisprudencia, contrastación,
+   argumentos con cita por afirmación, contraargumentos, riesgos y
+   conclusión con/sin soporte.
+3. **Conexión clasificador→retrieval**: la búsqueda exacta matchea
+   number Y title de la norma (fix de abstenciones espurias para
+   normas citadas por título, p.ej. Código Sustantivo del Trabajo).
+4. **Contrato de respuesta jurídica** (`albra/runtime/engine.py`):
+   `legal_gate` (autorización) separado de `legal_verdict` (resultado:
+   ANSWERED_WITH_EVIDENCE / ABSTAINED / NEEDS_HUMAN_REVIEW /
+   GATE_BLOCKED). Nunca se presenta una autorización como aprobación
+   jurídica.
+5. **Autonomía de LawyerExam** (`albra/lawyer/issue_discovery.py` +
+   pasos 3-6 del examen): el agente propone problemas jurídicos y
+   fuentes desde los hechos (determinista, sin LLM); propuestas
+   marcadas y verificadas contra corpus; no encontrada →
+   `sin_verificar` explícito. Guard, AdversarialValidator, revisión
+   humana y abstención intactos.
+6. **Auditoría de citas alineada al corpus canónico** (v14 = V1.4+V1.3):
+   el engine audita TODAS sus citas antes de revelar la respuesta
+   (fail-closed: 1 cita no verificada → abstención); fidelidad
+   diferenciada (`document_only` vs `literal_retraced`);
+   `paraphrase_verified: False` siempre honesto.
+7. **Readiness y estado degradado**: `seed_failed` siempre explícito;
+   `engine.stats()` reporta `corpus_available` y `legal_service`
+   (READY / DEGRADED_NO_CORPUS); check `legal_knowledge` en el doctor
+   (sonda real: hashes + abstención sin corpus).
+
+### Estado de validación
+
+- Suite completa: 1221 passed / 11 skipped en py3.10, py3.11 y py3.12.
+- Ruff (albra/ tests/ src/): limpio.
+- Clean-room sobre SHA exacto: ver registro A-ABOGADO-BASE-002.
+- CI en GitHub Actions del SHA final: PENDIENTE (push requiere autorización).
+
+### Estado de los 4 niveles (disciplina de estados)
+
+- **EXTRACCIÓN COMPLETA**: SÍ — todo el código legal del abogado vive
+  en ABOGADO-BASE; DESPACHO-JURIDICO no fue modificado.
+- **FUNCIONAMIENTO INDEPENDIENTE VERIFICADO**: SÍ — instala, bootea,
+  responde, siembra corpus, abstuvo correctamente y pasa la suite en
+  entornos limpios sin DESPACHO.
+- **PREPARADO PARA DESPLIEGUE**: SÍ, con las limitaciones documentadas
+  (paráfrasis NLI, fuentes oficiales declarativas, vigencia parcial al
+  corpus).
+- **DESPLEGADO Y VERIFICADO EN PRODUCCIÓN**: NO — no existe despliegue;
+  no se afirma.
+
+### Limitaciones vigentes (resumen)
+
+Ver A-ABOGADO-BASE-002 § Limitaciones restantes: paráfrasis sin NLI,
+examen E2E con LLM real pendiente de API key, mensaje stale del
+fallback en ReasoningEngine (camino de borde), fuentes oficiales sin
+integración real, vigencia limitada al corpus canónico.

@@ -94,9 +94,16 @@ CORPUS_VERSION = "V1.4+V1.3"
 
 @dataclass
 class CorpusSeedReport:
-    """Resultado verificable de la siembra del corpus."""
+    """Resultado verificable de la siembra del corpus.
+
+    ``seed_failed`` es SIEMPRE explícito (contrato de observabilidad):
+    ``False`` en la ruta exitosa, ``True`` en el fallback degradado que
+    construye ``Agent.boot()``. Un consumidor nunca debe adivinar el
+    estado por ausencia de la clave.
+    """
 
     corpus_version: str = CORPUS_VERSION
+    seed_failed: bool = False
     ingested: int = 0
     skipped_hash_mismatch: list[str] = field(default_factory=list)
     rejected: list[dict[str, Any]] = field(default_factory=list)
@@ -106,6 +113,7 @@ class CorpusSeedReport:
     def as_dict(self) -> dict[str, Any]:
         return {
             "corpus_version": self.corpus_version,
+            "seed_failed": self.seed_failed,
             "ingested": self.ingested,
             "skipped_hash_mismatch": self.skipped_hash_mismatch,
             "rejected": self.rejected,

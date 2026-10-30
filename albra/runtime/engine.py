@@ -147,6 +147,12 @@ class Runtime:
                 circuit_breaker=circuit_breaker,
                 provider_name=self.settings.default_provider,
             )
+            # CONTRATO (hallazgo 6): el veredicto del gate es la
+            # AUTORIZACIÓN para invocar el motor — NO el resultado de la
+            # investigación jurídica. Se reporta por separado.
+            gate_verdict = legal_gate.evaluate(
+                "internal_research", text=message, actor_role=user_role,
+            )
             if not guard.allowed:
                 await audit.record("legal_engine.guard.deny", guard.as_dict())
                 execution_trace.finish(
@@ -157,10 +163,24 @@ class Runtime:
                     "reply": f"Acceso denegado al motor jurídico: {guard.reason}",
                     "authorized": False, "execution_id": exec_id,
                     "classification": classification.classification.name,
+                    # CONTRATO (hallazgo 6): autorización ≠ resultado jurídico.
+                    # Un bloqueo del guard NO es una decisión jurídica.
+                    "legal_gate": gate_verdict.verdict,
+                    "legal_verdict": "GATE_BLOCKED",
+                    "routed_to": "legal_engine",
+                    "abstention": True,
                 }
             # Invocar LegalKnowledgeEngine - ÓRGANO DEL RUNTIME
             await audit.record("legal_engine.invoked", {"query": message[:100]})
             legal_response = await legal_engine.query(message, user_role=user_role)
+            # CONTRATO (hallazgo 6): derivar el RESULTADO de la
+            # investigación jurídica (independiente de la autorización).
+            if legal_response.abstention:
+                legal_verdict = "ABSTAINED"
+            elif legal_response.needs_hitl:
+                legal_verdict = "NEEDS_HUMAN_REVIEW"
+            else:
+                legal_verdict = "ANSWERED_WITH_EVIDENCE"
             execution_trace.append_tool_call(
                 exec_id, name="legal_engine.query", args={"message": message},
                 ok=True, result=legal_response.format_text()[:200],
@@ -186,8 +206,11 @@ class Runtime:
                 outputs={"reply": legal_response.format_text()},
                 decisions=[{
                     "routed_to": "legal_engine",
+                    "legal_gate": gate_verdict.verdict,
+                    "legal_verdict": legal_verdict,
                     "abstention": legal_response.abstention,
                     "needs_clarification": legal_response.needs_clarification,
+                    "needs_hitl": legal_response.needs_hitl,
                 }],
             )
             await audit.record("outtake", {
@@ -200,10 +223,24 @@ class Runtime:
                 "authorized": True,
                 "execution_id": exec_id,
                 "classification": classification.classification.name,
-                "legal_verdict": "APPROVED",
+                # CONTRATO DE RESPUESTA JURÍDICA (hallazgo 6 — separación
+                # de semánticas, antes colapsadas en legal_verdict="APPROVED"):
+                # - legal_gate: AUTORIZACIÓN para invocar el motor jurídico
+                #   (veredicto del LegalGate — nunca es una aprobación jurídica).
+                # - legal_verdict: RESULTADO de la investigación jurídica:
+                #     ANSWERED_WITH_EVIDENCE → evidencia verificada con citas
+                #     ABSTAINED              → sin evidencia suficiente (abstención)
+                #     NEEDS_HUMAN_REVIEW     → verificación requiere revisión humana
+                # - abstention / needs_clarification / needs_hitl: estado
+                #   detallado de la respuesta.
+                # La autorización de ejecución NUNCA se presenta como
+                # aprobación jurídica: abstention=True ⇒ legal_verdict=ABSTAINED.
+                "legal_gate": gate_verdict.verdict,
+                "legal_verdict": legal_verdict,
                 "routed_to": "legal_engine",
                 "abstention": legal_response.abstention,
                 "needs_clarification": legal_response.needs_clarification,
+                "needs_hitl": legal_response.needs_hitl,
             }
 
         # 3. POLICY + kill switch (ya calculado arriba, solo checkear)

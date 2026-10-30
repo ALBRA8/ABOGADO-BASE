@@ -135,12 +135,26 @@ class InMemoryRetrievalProvider(RetrievalProvider):
 
         P1-8 FIX: respeta jurisdiction, authority, source_tier, temporal.
         NO evada las restricciones que aplica el retrieval híbrido.
+
+        FIX DE CONEXIÓN (cierre de extracción): el clasificador
+        (`LegalQueryClassifier`) emite el nombre/título de la norma
+        detectado en la consulta (p.ej. "Código Sustantivo del Trabajo",
+        que es el TITLE del doc cuyo NUMBER es "Decreto 2663 de 1950").
+        La búsqueda exacta solo comparaba contra ``norm.number``, por lo
+        que toda consulta por título de norma caía a 0 hits y terminaba
+        en abstención aunque la norma ESTUVIERA en el corpus. Ahora
+        compara contra number Y title (ambos metadatos indexados).
         """
         candidates: list[EvidenceCandidate] = []
-        # Match by norm number
+        # Match by norm number OR title
         if query.norm_number:
+            needle = query.norm_number.lower().strip()
             for norm in self._norms.values():
-                if norm.number and query.norm_number.lower() in norm.number.lower():
+                haystacks = (
+                    (norm.number or "").lower(),
+                    (norm.title or "").lower(),
+                )
+                if any(needle in h for h in haystacks if h):
                     # P1-8 FIX: aplicar todos los filtros jurídicos
                     if not self._matches_filters(norm, query, doc_type="norm"):
                         continue

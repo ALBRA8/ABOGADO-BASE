@@ -235,6 +235,75 @@ async def comm_check() -> CheckResult:
     )
 
 
+async def legal_knowledge_check() -> CheckResult:
+    """Probe legal knowledge — corpus integrity + fail-closed abstention.
+
+    Cierre de extracción (hallazgo 9 — readiness y estado degradado):
+    el servicio jurídico NO puede anunciarse saludable sin evidencia.
+    Este check ejecuta una sonda REAL:
+
+    1. Verifica los hashes SHA-256 del corpus canónico V1.4+V1.3
+       (``verify_corpus_hashes`` — integridad nivel 1).
+    2. Instancia el LegalKnowledgeEngine con provider VACÍO y verifica
+       que una consulta jurídica sin corpus ABSTIENE (fail-closed de
+       nivel respuesta) y que el estado se reporta como
+       ``DEGRADED_NO_CORPUS``.
+
+    Estado HEALTHY exige: hashes íntegros Y abstención sin corpus.
+    """
+    try:
+        from albra.knowledge.corpus_seed import verify_corpus_hashes
+        from albra.knowledge.legal_engine import LegalKnowledgeEngine
+
+        # 1. Integridad del corpus canónico (real, determinista).
+        mismatched = verify_corpus_hashes()
+        if mismatched:
+            return CheckResult(
+                name="legal_knowledge", status=HealthState.ERROR,
+                implementation_status=ImplementationStatus.IMPLEMENTED,
+                details=(
+                    f"corpus integrity FAIL: {len(mismatched)} documento(s) "
+                    f"con hash inválido: {mismatched[:3]}"
+                ),
+                evidence=["verify_corpus_hashes() → mismatches"],
+            )
+
+        # 2. Fail-closed de nivel respuesta sin corpus (sonda real).
+        engine = LegalKnowledgeEngine()  # provider vacío por defecto
+        resp = await engine.query("¿Qué dice el artículo 25 de la Constitución Política?")
+        stats = engine.stats()
+        if resp.abstention and stats.get("legal_service") == "DEGRADED_NO_CORPUS":
+            return CheckResult(
+                name="legal_knowledge", status=HealthState.HEALTHY,
+                implementation_status=ImplementationStatus.IMPLEMENTED,
+                details=(
+                    "corpus canónico íntegro (12 docs); engine sin corpus "
+                    "abstiene (fail-closed); readiness reporta "
+                    "DEGRADED_NO_CORPUS cuando no hay corpus"
+                ),
+                evidence=[
+                    "verify_corpus_hashes() → [] mismatches",
+                    "engine.query() sin corpus → abstention=True",
+                    "engine.stats()['legal_service'] = DEGRADED_NO_CORPUS",
+                ],
+            )
+        return CheckResult(
+            name="legal_knowledge", status=HealthState.ERROR,
+            implementation_status=ImplementationStatus.IMPLEMENTED,
+            details=(
+                f"fail-closed roto: abstention={resp.abstention}, "
+                f"legal_service={stats.get('legal_service')}"
+            ),
+            evidence=["engine.query() sin corpus NO abstuvo"],
+        )
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult(
+            name="legal_knowledge", status=HealthState.ERROR,
+            implementation_status=ImplementationStatus.NOT_VERIFIED,
+            details=f"legal knowledge probe failed: {exc!r}",
+        )
+
+
 def default_registry() -> CheckRegistry:
     """Return a CheckRegistry pre-populated with the built-in checks."""
     reg = CheckRegistry()
@@ -248,6 +317,7 @@ def default_registry() -> CheckRegistry:
     reg.register("observability", observability_check)
     reg.register("mcp", mcp_check)
     reg.register("communication", comm_check)
+    reg.register("legal_knowledge", legal_knowledge_check)
     return reg
 
 
@@ -256,4 +326,5 @@ __all__ = [
     "runtime_check", "memory_check", "providers_check", "tools_check",
     "skills_check", "security_check", "audit_check",
     "observability_check", "mcp_check", "comm_check",
+    "legal_knowledge_check",
 ]

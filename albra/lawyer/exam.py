@@ -136,7 +136,14 @@ class LawyerExam:
         self.case_id = case_id
         self.case_facts = case_facts
         self.guard = guard
-        self.citation_auditor = citation_auditor or CitationAuditor()
+        # Cierre de extracción (hallazgo 7): alinear la validación de
+        # citas con el corpus canónico V1.4 + leyes V1.3 (el mismo corpus
+        # que siembra el boot del agente), NO con el V1.1 histórico de 12
+        # artículos. Puede inyectarse otro auditor explícitamente.
+        self.citation_auditor = citation_auditor or CitationAuditor(corpus_version="v14")
+        # Indica si el corpus canónico V1.4+V1.3 está disponible para los
+        # lookups (True en el repositorio canónico).
+        self.corpus_seed_compat = True
         self.log = get_logger("albra.lawyer.exam")
         self.result = LawyerExamResult(
             case_id=case_id,
@@ -148,6 +155,10 @@ class LawyerExam:
         self._strategy_text = ""
         self._counter_text = ""
         self._review_text = ""
+        # Fuentes propUESTAS por el agente (hallazgo 5): el paso 4 las
+        # calcula y los pasos 5-6 las consumen cuando el caso no declara
+        # las suyas. Toda propuesta sale marcada proposed_by_agent.
+        self._proposed_sources: list[dict[str, Any]] = []
 
     # ----- Helpers -----
 
@@ -297,22 +308,59 @@ class LawyerExam:
     # ----- Step 3: Legal issues -----
 
     def _step_03_legal_issues(self) -> None:
-        """Delimitar los problemas jurídicos."""
-        # The case input provides legal_issues (deterministic).
-        # We do NOT ask the LLM to invent issues — that risks hallucination.
+        """Delimitar los problemas jurídicos.
+
+        Cierre de extracción (hallazgo 5): el examen ahora PUEDE
+        proponer problemas jurídicos cuando el caso no los declara,
+        derivándolos deterministamente de los hechos y documentos
+        recibidos (``issue_discovery.discover_legal_issues`` — sin LLM,
+        sin invención). Toda propuesta se marca
+        ``proposed_by_agent=True`` y queda sujeta a revisión humana.
+        Si el caso declara los issues, prevalecen los declarados
+        (comportamiento V7.0 intacto).
+        """
         legal_issues = self.case_facts.get("legal_issues", [])
+        source = "declarados por el caso"
+        proposed = False
+        if not legal_issues:
+            from albra.lawyer.issue_discovery import discover_legal_issues
+            proposals = discover_legal_issues(self.case_facts)
+            legal_issues = [p["issue"] for p in proposals]
+            proposed = bool(legal_issues)
+            source = "propuestos por el agente a partir de los hechos"
         step = ExamStep(
             step_number=3,
             name="Delimitación de problemas jurídicos",
             status="ok" if legal_issues else "abstained",
             summary=(
-                f"Problemas jurídicos delimitados: {len(legal_issues)}."
+                f"Problemas jurídicos delimitados: {len(legal_issues)} "
+                f"({source})."
                 if legal_issues
                 else "No se delimitaron problemas jurídicos — el caso "
-                     "no los declaró. Abstención."
+                     "no los declaró y no fue posible proponerlos a "
+                     "partir de los hechos. Abstención."
             ),
-            evidence=[{"type": "legal_issues", "items": legal_issues}],
+            evidence=[
+                {
+                    "type": "legal_issues",
+                    "items": legal_issues,
+                    "proposed_by_agent": proposed,
+                    "source": source,
+                },
+            ],
         )
+        if proposed:
+            step.notes.append(
+                "Problemas PROPUESTOS por el agente mediante detección "
+                "determinista de dominios en los hechos. Requieren "
+                "confirmación del abogado humano antes de cualquier "
+                "actuación procesal."
+            )
+            self.result.limitations.append(
+                "Los problemas jurídicos del paso 3 fueron propuestos "
+                "por el agente (no declarados por el caso) — revisión "
+                "humana requerida."
+            )
         if not legal_issues:
             step.notes.append(
                 "La delimitación de problemas jurídicos es responsabilidad "
@@ -329,22 +377,59 @@ class LawyerExam:
     # ----- Step 4: Required sources -----
 
     def _step_04_required_sources(self) -> None:
-        """Determinar las fuentes normativas y jurisprudenciales necesarias."""
+        """Determinar las fuentes normativas y jurisprudenciales necesarias.
+
+        Cierre de extracción (hallazgo 5): si el caso no declara fuentes,
+        el agente PROPONE las normas del corpus canónico correspondientes
+        a los dominios detectados en los hechos (y el artículo específico
+        cuando los hechos citan uno). Cada propuesta sale marcada
+        ``proposed_by_agent=True`` y ``verified=False``: NO se considera
+        verificada hasta que el paso 5 la contraste contra el corpus. Lo
+        que no se encuentre queda expresamente SIN VERIFICAR (pasos 5-6).
+        """
         required = self.case_facts.get("required_sources", [])
-        # We don't ask the LLM for sources — that risks hallucination.
-        # The case declares what it needs; we verify availability.
+        proposed: list[dict[str, Any]] = []
+        if not required:
+            from albra.lawyer.issue_discovery import (
+                discover_legal_issues,
+                propose_required_sources,
+            )
+            issues = discover_legal_issues(self.case_facts)
+            proposed = propose_required_sources(self.case_facts, issues)
+            required = [
+                {"document": s["document"], "article": s["article"], "proposed_by_agent": True}
+                for s in proposed
+            ]
+            # Persistir para los pasos 5-6 (fuente única de requeridas).
+            self._proposed_sources = required
         step = ExamStep(
             step_number=4,
             name="Fuentes normativas necesarias",
             status="ok" if required else "abstained",
             summary=(
-                f"Fuentes requeridas: {len(required)}."
+                f"Fuentes requeridas: {len(required)}"
+                + (" (propuestas por el agente)." if proposed else ".")
                 if required
-                else "No se declararon fuentes requeridas."
+                else "No se declararon fuentes requeridas y no fue posible "
+                     "proponerlas a partir de los hechos."
             ),
-            evidence=[{"type": "required_sources", "items": required}],
+            evidence=[
+                {
+                    "type": "required_sources",
+                    "items": required,
+                    "proposed_by_agent": bool(proposed),
+                    "proposals_detail": proposed,
+                },
+            ],
         )
-        if not required:
+        if proposed:
+            step.notes.append(
+                "Fuentes PROPUESTAS por el agente (normas del corpus "
+                "canónico asociadas a los dominios detectados). Cada una "
+                "se comprobará contra el corpus en el paso 5; una fuente "
+                "no encontrada queda expresamente SIN VERIFICAR."
+            )
+        elif not required:
             step.notes.append(
                 "El caso debe declarar las fuentes normativas que pretende "
                 "invocar (e.g. Constitución art. 28, Ley 100 art. 8)."
@@ -353,23 +438,37 @@ class LawyerExam:
 
     # ----- Step 5: Research + provenance -----
 
+    def _effective_required_sources(self) -> list[dict[str, Any]]:
+        """Fuentes requeridas efectivas: declaradas por el caso o,
+        en su defecto, las propuestas por el agente en el paso 4."""
+        declared = self.case_facts.get("required_sources", [])
+        if declared:
+            return declared
+        return self._proposed_sources
+
     def _step_05_research_provenance(self) -> None:
         """Investigar y conservar la procedencia de las fuentes."""
-        required = self.case_facts.get("required_sources", [])
+        required = self._effective_required_sources()
         # For each required source, look it up in the corpus.
         evidence: list[dict[str, Any]] = []
         any_found = False
         for src in required:
             doc_name = src.get("document", "")
             article_num = str(src.get("article", ""))
+            proposed = bool(src.get("proposed_by_agent"))
             # Use the citation auditor's corpus to find this article.
-            found = self._lookup_in_corpus(doc_name, article_num)
+            if article_num:
+                found = self._lookup_in_corpus(doc_name, article_num)
+            else:
+                # Fuente a nivel de documento (sin artículo específico).
+                found = self._lookup_doc_in_corpus(doc_name)
             if found:
                 any_found = True
                 evidence.append({
                     "type": "found_in_corpus",
                     "document": doc_name,
                     "article": article_num,
+                    "proposed_by_agent": proposed,
                     "provenance_status": found.get("provenance_status", "UNKNOWN"),
                     "source_url": found.get("source_url", ""),
                     "source_tier": found.get("source_tier", ""),
@@ -379,7 +478,11 @@ class LawyerExam:
                     "type": "not_in_corpus",
                     "document": doc_name,
                     "article": article_num,
+                    "proposed_by_agent": proposed,
                     "provenance_status": "NOT_AVAILABLE",
+                    # Regla del hallazgo 5: una fuente propuesta no
+                    # encontrada queda EXPRESAMENTE sin verificar.
+                    "sin_verificar": True,
                 })
         step = ExamStep(
             step_number=5,
@@ -477,30 +580,107 @@ class LawyerExam:
                     }
         return None
 
+    def _lookup_doc_in_corpus(self, doc_name: str) -> dict[str, Any] | None:
+        """Look up a DOCUMENT (no article) in the canonical corpus.
+
+        Cierre de extracción (hallazgo 5): las fuentes propuestas por el
+        agente a nivel de dominio no traen artículo específico; esta
+        variante verifica que el documento exista en el corpus canónico
+        y devuelve su provenance (la fuente sigue SIN VERIFICAR a nivel
+        de artículo — el paso 6 lo refleja).
+        """
+        corpus = None
+        try:
+            from albra.knowledge.colombia.corpus_pilot.real_corpus_v14 import (
+                ALL_DOCUMENTS_V14,
+            )
+            corpus = list(ALL_DOCUMENTS_V14)
+        except ImportError:
+            pass
+        if corpus is None:
+            try:
+                from albra.knowledge.colombia.corpus_pilot.real_corpus_v13 import (
+                    ALL_DOCUMENTS_V13,
+                )
+                corpus = list(ALL_DOCUMENTS_V13)
+            except ImportError:
+                return None
+        # Leyes V1.3 vivas del corpus canónico (no subsumidas).
+        if self.corpus_seed_compat:
+            try:
+                from albra.knowledge.colombia.corpus_pilot.real_corpus_v13 import (
+                    ALL_DOCUMENTS_V13 as _V13,
+                )
+                for slug, doc in _V13:
+                    if doc.get("source_id") in (
+                        "ley_100_1993_real_v13",
+                        "ley_80_1993_real_v13",
+                    ):
+                        corpus.append((slug, doc))
+            except ImportError:
+                pass
+        aliases = self._CITATION_ALIASES
+        key = aliases.get(doc_name.lower().strip())
+        if not key:
+            for slug, _doc in corpus:
+                if doc_name.lower() in slug.lower() or slug.lower() in doc_name.lower():
+                    key = slug
+                    break
+        if not key:
+            return None
+        for slug, doc in corpus:
+            if slug != key:
+                continue
+            prov = doc.get("provenance", {})
+            src_capture = getattr(prov, "source_capture", None) if hasattr(prov, "source_capture") else None
+            return {
+                "document_slug": slug,
+                "title": doc.get("title", ""),
+                "articles": len(doc.get("articles", [])),
+                "provenance_status": doc.get("provenance_status", "UNKNOWN"),
+                "source_url": getattr(src_capture, "source_url", "") if src_capture else doc.get("source_url", ""),
+                "source_tier": doc.get("source_tier", ""),
+            }
+        return None
+
     # ----- Step 6: Validate citations + vigency -----
 
     def _step_06_validate_citations(self) -> None:
         """Validar las referencias jurídicas y la vigencia aplicable."""
-        required = self.case_facts.get("required_sources", [])
+        required = self._effective_required_sources()
         verified: list[dict[str, Any]] = []
         unverified: list[dict[str, Any]] = []
         for src in required:
             doc_name = src.get("document", "")
             article_num = str(src.get("article", ""))
-            found = self._lookup_in_corpus(doc_name, article_num)
+            proposed = bool(src.get("proposed_by_agent"))
+            if article_num:
+                found = self._lookup_in_corpus(doc_name, article_num)
+            else:
+                found = self._lookup_doc_in_corpus(doc_name)
             if found:
-                verified.append({
+                entry = {
                     "document": doc_name,
                     "article": article_num,
+                    "proposed_by_agent": proposed,
                     "provenance_status": found["provenance_status"],
                     "source_url": found["source_url"],
-                    "article_text_preview": found["article_text"][:200],
-                })
+                }
+                if "article_text" in found:
+                    entry["article_text_preview"] = found["article_text"][:200]
+                else:
+                    entry["document_level"] = True
+                    entry["articles_in_document"] = found.get("articles", 0)
+                verified.append(entry)
             else:
                 unverified.append({
                     "document": doc_name,
                     "article": article_num,
-                    "reason": "NOT_IN_CORPUS_V13",
+                    "proposed_by_agent": proposed,
+                    "reason": "NOT_IN_CORPUS",
+                    # Hallazgo 5: fuente propuesta no encontrada queda
+                    # expresamente SIN VERIFICAR.
+                    "sin_verificar": True,
                 })
         self.result.citations_verified = verified
         self.result.citations_unverified = unverified
@@ -585,10 +765,19 @@ class LawyerExam:
             pass
 
         # Build the LLM prompt with the verified article texts.
-        article_texts = "\n\n".join(
-            f"[{v['document']} art. {v['article']}]\n{v['article_text_preview']}"
-            for v in verified
-        )
+        # Cierre de extracción (hallazgo 5): las fuentes propuestas por el
+        # agente pueden estar verificadas a nivel DOCUMENTO (sin artículo
+        # específico); se presentan como tal — nunca como artículo.
+        def _fmt_verified(v: dict[str, Any]) -> str:
+            preview = v.get("article_text_preview")
+            if preview:
+                return f"[{v['document']} art. {v['article']}]\n{preview}"
+            n_arts = v.get("articles_in_document", "?")
+            return (
+                f"[{v['document']} \u2014 documento en corpus ({n_arts} arts.); "
+                f"art\u00edculo espec\u00edfico por definir con el abogado humano]"
+            )
+        article_texts = "\n\n".join(_fmt_verified(v) for v in verified)
         prompt = (
             "Eres un abogado colombiano. Formula una estrategia jurídica "
             "razonada para el siguiente caso. Usa EXCLUSIVAMENTE las "
@@ -857,8 +1046,12 @@ class LawyerExam:
             f"HECHOS: {json.dumps(self.case_facts.get('facts', []), ensure_ascii=False)}\n"
             f"ESTRATEGIA: {self._strategy_text}\n"
             f"CONTRAARGUMENTOS (a refutar): {self._counter_text or 'N/A'}\n"
-            f"NORMAS VERIFICADAS (corpus V1.4 — Constitución/CGP/CPP/CST/Ley 640):\n" + "\n".join(
-                f"- {v['document']} art. {v['article']}: {v['article_text_preview']}"
+            f"NORMAS VERIFICADAS (corpus canónico V1.4+V1.3 — Constitución/CGP/CPP/CST/Ley 640/Ley 100/Ley 80):\n" + "\n".join(
+                (
+                    f"- {v['document']} art. {v['article']}: {v['article_text_preview']}"
+                    if v.get("article_text_preview")
+                    else f"- {v['document']} (documento verificado en corpus; artículo por definir)"
+                )
                 for v in self.result.citations_verified
             ) + "\n\n"
             "BORRADOR (en español, formato profesional, incluye 'Borrador "

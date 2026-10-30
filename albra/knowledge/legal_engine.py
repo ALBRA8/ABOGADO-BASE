@@ -31,7 +31,9 @@ from typing import Any
 
 from albra.knowledge.abstention import AbstentionPolicy
 from albra.knowledge.citation import Citation, LegalResponse, LegalResponseBlock
+from albra.knowledge.citation_audit import CitationAuditor
 from albra.knowledge.legal_provenance import build_provenance, record_evidence_with_provenance
+from albra.knowledge.legal_reasoning import LegalAnalysis, build_legal_analysis
 from albra.knowledge.query_classifier import LegalQueryClassifier, QueryClassification
 from albra.knowledge.retrieval import HybridRetriever, RetrievalQuery
 from albra.knowledge.retrieval_providers import InMemoryRetrievalProvider
@@ -45,7 +47,22 @@ class LegalKnowledgeEngine:
 
     Pipeline:
     LegalQuery → Query Understanding → Retrieval → Verification →
-    Abstention → EvidenceChain → Legal Response
+    Abstention → EvidenceChain → ANÁLISIS JURÍDICO → Citation audit
+    (fail-closed pre-reveal) → Legal Response
+
+    Cierre de extracción — la respuesta NO es solo el fragmento
+    recuperado: incluye un análisis jurídico estructurado
+    (``legal_reasoning.build_legal_analysis``) construido
+    DETERMINISTAMENTE sobre la evidencia YA verificada (hechos
+    declarados vs inferencias, problemas jurídicos, normas aplicables,
+    jurisprudencia, contrastación, argumentos con cita, contraargumentos
+    y conclusión). NO se invoca LLM aquí: el razonamiento de un proveedor
+    LLM nunca sustituye la verificación de las fuentes.
+
+    ANTES de revelar la respuesta, TODAS las citas construidas pasan por
+    ``CitationAuditor.validate_citation_direct`` contra el corpus
+    canónico V1.4+V1.3. Si una sola cita no se verifica → abstención
+    (fail-closed de NIVEL RESPUESTA).
     """
 
     def __init__(
@@ -62,6 +79,9 @@ class LegalKnowledgeEngine:
         self.classifier = LegalQueryClassifier()
         self.verifier = LegalVerifier()
         self.abstention_policy = AbstentionPolicy()
+        # Fail-closed pre-reveal: auditoría de citas contra el corpus
+        # canónico (mismo corpus que siembra corpus_seed.py).
+        self.citation_auditor = CitationAuditor(corpus_version="v14")
 
     async def startup(self) -> None:
         await self.retriever.provider.startup()
@@ -119,6 +139,29 @@ class LegalKnowledgeEngine:
         # 8. Build citations from evidence
         citations = self._build_citations(verification)
 
+        # 8.5 FAIL-CLOSED PRE-REVEAL: auditar TODA cita construida contra
+        # el corpus canónico ANTES de revelar la respuesta. Una sola cita
+        # no verificada → abstención (nunca se muestra una cita no
+        # verificada como fundamento).
+        audit = self._audit_citations_pre_reveal(citations, verification)
+        if not audit["all_verified"]:
+            self.log.warning(
+                "legal_engine.citation_audit_blocked",
+                unverified=audit["unverified"], reason=audit["reason"],
+            )
+            return LegalResponse(
+                query=query_text,
+                query_type=classification.query_type,
+                abstention=True,
+                abstention_reason=(
+                    "Citas no verificadas contra el corpus canónico: "
+                    + audit["reason"]
+                    + " Fail-closed: la respuesta no se revela."
+                ),
+                needs_hitl=True,
+                citation_audit=audit,
+            )
+
         # 9. Record evidence with legal provenance
         if self.evidence_chain and verification.primary_evidence_id:
             primary_candidate = next(
@@ -152,10 +195,21 @@ class LegalKnowledgeEngine:
                     },
                 )
 
-        # 10. Build response blocks
+        # 10. Build response blocks (texto normativo/jurisprudencia +
+        # análisis jurídico estructurado)
         blocks = self._build_response_blocks(
             query_text, classification, verification, citations
         )
+
+        # 10.5 ANÁLISIS JURÍDICO ESTRUCTURADO (determinista, sobre la
+        # misma evidencia verificada — sin LLM, sin nueva recuperación).
+        analysis = build_legal_analysis(
+            query_text=query_text,
+            classification=classification,
+            verification=verification,
+            citations=citations,
+        )
+        blocks.append(self._analysis_block(analysis))
 
         return LegalResponse(
             query=query_text,
@@ -167,6 +221,8 @@ class LegalKnowledgeEngine:
                 for c in verification.conflicts
             ] if verification.conflicts else [],
             needs_hitl=verification.needs_hitl,
+            citation_audit=audit,
+            legal_analysis=analysis.as_dict(),
         )
 
     def _build_retrieval_query(
@@ -289,10 +345,135 @@ class LegalKnowledgeEngine:
 
         return blocks
 
-    def stats(self) -> dict[str, Any]:
+    def _audit_citations_pre_reveal(
+        self,
+        citations: list[Citation],
+        verification: VerificationResult,
+    ) -> dict[str, Any]:
+        """Auditoría fail-closed de las citas de la respuesta.
+
+        Diferenciación de garantías:
+        - extracción: aquí no aplica (las citas no se extraen del texto
+          con patrones; se construyen desde la evidencia recuperada).
+        - validación documental: documento + artículo existen en el
+          corpus canónico (``validate_citation_direct``).
+        - fidelidad: el snippet recuperado se retraza literalmente en la
+          fuente (``literal_retraced``); si no aparece, la cita queda
+          ``document_only`` (documento verificado, paráfrasis NO
+          demostrada) y se reporta como tal.
+        """
+        checked: list[dict[str, Any]] = []
+        unverified_reasons: list[str] = []
+        fidelity_counts: dict[str, int] = {}
+        # Mapa document_id → candidate para resolver el nombre de
+        # documento según el TIPO (norma: number/title; sentencia:
+        # file_number en provenance — la citation_text de jurisprudencia
+        # empieza por la corte, no por el documento).
+        cand_by_id = {c.document_id: c for c in verification.candidates}
+        for cit in citations:
+            cand = cand_by_id.get(cit.document_id)
+            doc_name = ""
+            art = None
+            if cand is not None and cand.document_type in ("sentencia", "auto"):
+                file_number = str(cand.provenance.get("file_number", "") or "")
+                if file_number:
+                    doc_name = f"Sentencia {file_number}"
+            if not doc_name:
+                # Norma: "Constitución Política de 1991, art. 25".
+                doc_name = cit.citation_text.split(",")[0].strip()
+                if "art." in cit.citation_text:
+                    art = cit.citation_text.rsplit("art.", 1)[-1].strip()
+            in_corpus, fidelity, reason = self.citation_auditor.validate_citation_direct(
+                document_name=doc_name,
+                article_number=art,
+                snippet=cit.snippet,
+            )
+            fidelity_counts[fidelity or "unverified"] = fidelity_counts.get(fidelity or "unverified", 0) + 1
+            checked.append({
+                "citation_text": cit.citation_text,
+                "document_id": cit.document_id,
+                "in_corpus": in_corpus,
+                "fidelity": fidelity,
+                "reason": reason,
+            })
+            if not in_corpus:
+                unverified_reasons.append(f"{cit.citation_text}: {reason}")
+        all_verified = len(citations) > 0 and not unverified_reasons
         return {
-            "retriever": self.retriever.provider.stats(),
-            "engine": "LegalKnowledgeEngine V1.0",
+            "executed": True,
+            "corpus_version": self.citation_auditor.corpus_version,
+            "citations_checked": len(citations),
+            "all_verified": all_verified,
+            "unverified": len(unverified_reasons),
+            "fidelity": fidelity_counts,
+            "detail": checked,
+            "reason": "; ".join(unverified_reasons) if unverified_reasons else (
+                f"{len(citations)} citas verificadas contra corpus canónico."
+            ),
+            # Nota honesta: la fidelidad de paráfrasis NO se demuestra;
+            # solo retracing literal (ver fidelity por cita).
+            "paraphrase_verified": False,
+        }
+
+    def _analysis_block(self, analysis: LegalAnalysis) -> LegalResponseBlock:
+        """Bloque de respuesta con el análisis jurídico estructurado.
+
+        content_type="interpretacion" (tipo marcado del schema): es
+        interpretación del sistema, NO texto normativo literal. La cita
+        primaria acompaña al bloque.
+        """
+        a = analysis
+        parts: list[str] = []
+        parts.append("HECHOS DECLARADOS: " + (" | ".join(a.hechos_declarados[:1]) or "n/d"))
+        if a.inferencias:
+            parts.append("INFERENCIAS (marcadas): " + " | ".join(a.inferencias))
+        if a.problemas_juridicos:
+            parts.append("PROBLEMAS JURÍDICOS: " + " | ".join(a.problemas_juridicos))
+        if a.hechos_faltantes:
+            parts.append("HECHOS FALTANTES: " + " | ".join(a.hechos_faltantes))
+        if a.normas_aplicables:
+            parts.append("NORMAS APLICABLES: " + " | ".join(
+                n["citation"] for n in a.normas_aplicables
+            ))
+        if a.jurisprudencia_pertinente:
+            parts.append("JURISPRUDENCIA PERTINENTE: " + " | ".join(
+                j["citation"] for j in a.jurisprudencia_pertinente
+            ))
+        for arg in a.argumentos:
+            parts.append(
+                f"ARGUMENTO ({arg.basis}) con cita [{', '.join(c.citation_text for c in arg.citations)}]: "
+                f"{arg.claim[:220]}"
+            )
+        if a.contraargumentos:
+            parts.append("CONTRAARGUMENTOS: " + " | ".join(a.contraargumentos))
+        if a.riesgos:
+            parts.append("RIESGOS: " + " | ".join(a.riesgos))
+        parts.append("CONCLUSIÓN: " + a.conclusion)
+        primary_citations = [
+            c for arg in a.argumentos for c in arg.citations
+        ][:2]
+        return LegalResponseBlock(
+            content_type="interpretacion",
+            text="\n".join(parts),
+            citations=primary_citations,
+            confidence=1.0 if a.conclusion_con_soporte else 0.3,
+            needs_review=not a.conclusion_con_soporte,
+        )
+
+    def stats(self) -> dict[str, Any]:
+        provider_stats = self.retriever.provider.stats()
+        articles = int(provider_stats.get("articles", 0) or 0)
+        return {
+            "retriever": provider_stats,
+            "engine": "LegalKnowledgeEngine V1.1",
             "jurisdiction": "CO",
             "abstention_threshold": self.abstention_policy.CONFIDENCE_THRESHOLD,
+            # Readiness del servicio jurídico (visibilidad de estado
+            # degradado — hallazgo 9 del cierre): un provider sin corpus
+            # NO se anuncia disponible; el fail-closed de respuesta
+            # (abstención) opera igual en ambos estados.
+            "corpus_available": articles > 0,
+            "legal_service": (
+                "READY" if articles > 0 else "DEGRADED_NO_CORPUS"
+            ),
         }
