@@ -18,6 +18,8 @@ from typing import Any
 
 from albra.config.settings import Settings
 from albra.evidence.legal_gate import LegalGate
+
+
 # V9.0 Separación ABOGADO-BASE: matters/matter_audit viven en DESPACHO-JURIDICO.
 # Importación lazy — el abogado no gestiona matters; si se invoca una
 # tool de matters sin el módulo disponible, falla con mensaje claro.

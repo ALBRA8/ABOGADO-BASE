@@ -7,7 +7,9 @@ from albra.identity.manifest import (
 
 
 def test_identity_exists():
-    assert AGENT_MANIFEST.name == "DESPACHO JURÍDICO DIGITAL ALBRA"
+    # V9.0 Separación ABOGADO-BASE: identidad renombrada (decisión D1).
+    # Era "DESPACHO JURÍDICO DIGITAL ALBRA" en DESPACHO-JURIDico.
+    assert AGENT_MANIFEST.name == "ABOGADO BASE ALBRA"
 
 
 def test_identity_has_30_organs():
