@@ -1,0 +1,14 @@
+[
+ {
+  "sentencia_id": "C-355-2006",
+  "page_filename": "sentencia.htm",
+  "url": "https://www.corteconstitucional.gov.co/relatoria/2006/C-355-06.htm",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 3398037,
+  "raw_bytes_hash": "13254dea6a3c8e4ca7ff13a931f55179262c5746f47d533e16f126b57384eae6",
+  "retrieval_timestamp": "2026-10-30T21:38:38+00:00",
+  "latency_ms": 10271.18,
+  "cached_at": "sentencia.htm"
+ }
+]

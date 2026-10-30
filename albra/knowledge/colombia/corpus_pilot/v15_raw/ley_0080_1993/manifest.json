@@ -1,0 +1,26 @@
+[
+ {
+  "page_filename": "ley_0080_1993.htm",
+  "page_index": 0,
+  "url": "http://www.secretariasenado.gov.co/senado/basedoc/ley_0080_1993.htm",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 196514,
+  "raw_bytes_hash": "5c1e6370843399a2f8b3dbc6c8089f989eb3375e84b09c9c10088967bece6c31",
+  "retrieval_timestamp": "2026-10-30T21:38:03+00:00",
+  "latency_ms": 2768.43,
+  "cached_at": "ley_0080_1993.htm"
+ },
+ {
+  "page_filename": "ley_0080_1993_pr001.html",
+  "page_index": 1,
+  "url": "http://www.secretariasenado.gov.co/senado/basedoc/ley_0080_1993_pr001.html",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 68512,
+  "raw_bytes_hash": "033231fc8e09fd90b20facfcdaa2b2838c55f96afa4fb03d1c69a8867f07291c",
+  "retrieval_timestamp": "2026-10-30T21:38:05+00:00",
+  "latency_ms": 1603.02,
+  "cached_at": "ley_0080_1993_pr001.html"
+ }
+]

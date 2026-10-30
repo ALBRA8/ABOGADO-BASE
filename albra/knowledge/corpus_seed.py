@@ -59,6 +59,9 @@ from albra.knowledge.colombia.corpus_pilot.real_corpus_v13 import (
 from albra.knowledge.colombia.corpus_pilot.real_corpus_v14 import (
     ALL_DOCUMENTS_V14,
 )
+from albra.knowledge.colombia.corpus_pilot.real_corpus_v15 import (
+    ALL_DOCUMENTS_V15,
+)
 from albra.knowledge.ingestion import LegalIngestionPipeline
 from albra.knowledge.retrieval import HybridRetriever
 from albra.knowledge.retrieval_providers import InMemoryRetrievalProvider
@@ -69,17 +72,20 @@ log = get_logger("albra.knowledge.corpus_seed")
 
 # Versiones del corpus subsumidas por una versión superior de la misma
 # norma. NO se siembran (regla anti-duplicación). V1.4 contiene la
-# Constitución completa (380 arts.); V1.3/V1.1 sólo un subconjunto.
+# Constitución completa (380 arts.); V1.5 contiene el TEXTO COMPLETO de
+# Ley 100/1993 (296 arts.) y Ley 80/1993 (83 arts.), que subsume los
+# fragmentos V1.3 de esas mismas leyes.
 _SUBSUMED_SOURCE_IDS = {
     "const_1991_real_v11",
     "const_1991_real_v13",
-}
-
-# Leyes que V1.4 no incluye y cuya mejor versión es V1.3.
-_V13_SOURCE_IDS_TO_SEED = {
     "ley_100_1993_real_v13",
     "ley_80_1993_real_v13",
 }
+
+# V1.3 ya no aporta documentos vivos al canónico: sus leyes viven
+# completas en V1.5 y su Constitución en V1.4. Se conserva el import
+# para compatibilidad y para los tests de V1.3.
+_V13_SOURCE_IDS_TO_SEED: set[str] = set()
 
 # Mapeo corpus → esquema DOCUMENT_TYPES (sólo en la llamada de ingesta;
 # el tipo original del corpus se conserva en provenance).
@@ -88,8 +94,9 @@ _INGESTION_TYPE_MAP = {
     "jurisprudencia": "sentencia",
 }
 
-# V1.4 (10 documentos) + leyes V1.3 no subsumidas = 12 documentos.
-CORPUS_VERSION = "V1.4+V1.3"
+# V1.5 (11 documentos: 6 normas completas + 5 sentencias) + V1.4 (5 normas
+# + 5 sentencias) = 21 documentos.
+CORPUS_VERSION = "V1.5+V1.4"
 
 
 @dataclass
@@ -123,11 +130,15 @@ class CorpusSeedReport:
 
 
 def canonical_corpus_documents() -> list[tuple[str, dict[str, Any]]]:
-    """Corpus canónico a sembrar: V1.4 completo + leyes V1.3 vivas.
+    """Corpus canónico a sembrar: V1.5 completo + V1.4 completo.
 
     Devuelve pares (categoría, documento) sin versiones subsumidas.
+    Las leyes V1.3 de Ley 100/Ley 80 quedaron subsumidas por sus textos
+    completos en V1.5 (regla anti-duplicación).
     """
     out: list[tuple[str, dict[str, Any]]] = []
+    for category, doc in ALL_DOCUMENTS_V15:
+        out.append((category, doc))
     for category, doc in ALL_DOCUMENTS_V14:
         out.append((category, doc))
     for category, doc in ALL_DOCUMENTS_V13:
@@ -265,6 +276,40 @@ async def seed_retrieval_provider(
             log.warning("corpus_seed.rejected", source_id=source_id, error=result.error)
 
     report.stats = provider.stats()
+
+    # Enriquecimiento de jurisprudencia con metadatos REALES (Fase
+    # Producción Real): ponente, fecha de resolución y tema extraídos
+    # del TEXTO COMPLETO de la fuente (los metadatos están en el
+    # encabezado de la sentencia, fuera del primer fragmento indexado).
+    # Nada se inventa: lo que la sentencia no declara queda como estaba.
+    try:
+        from albra.knowledge.jurisprudence_metadata import (
+            extract_sentencia_metadata,
+        )
+
+        full_text_by_number = {
+            doc.get("number", ""): doc.get("reconstructed_text", "")
+            for _, doc in canonical_corpus_documents()
+            if doc.get("document_type") == "jurisprudencia"
+        }
+        for j in provider.jurisprudence_items():
+            if getattr(j, "_metadata_enriched", False):
+                continue
+            text = full_text_by_number.get(j.file_number, "") or j.decision or ""
+            meta = extract_sentencia_metadata(text)
+            if meta.get("ponentes") and not j.ponente:
+                j.ponente = meta["ponentes"][0]
+            if meta.get("fecha_resolucion"):
+                try:
+                    from datetime import date as _d
+
+                    j.decision_date = _d.fromisoformat(meta["fecha_resolucion"])
+                except ValueError:
+                    pass
+            j._metadata_enriched = True
+    except Exception as e:  # noqa: BLE001 — el enriquecimiento nunca bloquea la siembra
+        log.warning("corpus_seed.jurisprudence_enrichment_failed", error=str(e))
+
     log.info(
         "corpus_seed.complete",
         ingested=report.ingested,

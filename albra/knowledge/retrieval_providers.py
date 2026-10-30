@@ -3,12 +3,22 @@ RETRIEVAL PROVIDERS - Implementaciones.
 
 InMemoryRetrievalProvider: default, sin deps, hash embedding.
 (futuro SQLiteRetrievalProvider, QdrantRetrievalProvider)
+
+Fase Producción Real — niveles de retrieval (TEST/BOOTSTRAP/PRODUCTION):
+  - TEST: provider vacío controlado para pruebas unitarias.
+  - BOOTSTRAP: corpus canónico sembrado en memoria (arranque sin deps
+    externas). Es el nivel del InMemoryRetrievalProvider.
+  - PRODUCTION: retrieval PERSISTENTE (SQLite/Qdrant) — AÚN NO
+    IMPLEMENTADO. La fábrica falla CERRADO (NotImplementedError con
+    causa explícita) en lugar de entregar silenciosamente un provider
+    en memoria como si fuera producción.
 """
 from __future__ import annotations
 
 import hashlib
 import math
 import time
+from enum import Enum
 from typing import Any
 
 from albra.knowledge.retrieval import (
@@ -47,13 +57,25 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
+class RetrievalTier(str, Enum):
+    """Nivel del retrieval — nunca se confunde BOOTSTRAP con PRODUCTION."""
+
+    TEST = "TEST"
+    BOOTSTRAP = "BOOTSTRAP"
+    PRODUCTION = "PRODUCTION"
+
+
 class InMemoryRetrievalProvider(RetrievalProvider):
     """In-memory retrieval provider - sin deps externas.
 
-    Para producción: usar SQLiteRetrievalProvider o QdrantRetrievalProvider.
+    Nivel: BOOTSTRAP (corpus canónico en memoria para arranque sin
+    dependencias). Para producción persistente: SQLiteRetrievalProvider
+    o QdrantRetrievalProvider (aún no implementados — la fábrica
+    ``create_retrieval_provider`` falla cerrado para ese nivel).
     """
 
     name = "inmemory"
+    tier = RetrievalTier.BOOTSTRAP
 
     def __init__(self) -> None:
         self._norms: dict[str, Norm] = {}
@@ -86,6 +108,15 @@ class InMemoryRetrievalProvider(RetrievalProvider):
             d.embedding = _hash_embedding(d.text or d.title)
         self._doctrine[d.id] = d
         return d.id
+
+    def jurisprudence_items(self) -> list[Jurisprudence]:
+        """Acceso de lectura a la jurisprudencia indexada.
+
+        Fase Producción Real: lo usa corpus_seed para enriquecer las
+        sentencias con sus metadatos reales (ponente, fecha, expediente)
+        extraídos del texto de la fuente.
+        """
+        return list(self._jurisprudence.values())
 
     async def retrieve(self, query: RetrievalQuery) -> RetrievalResult:
         t0 = time.time()
@@ -340,4 +371,28 @@ class InMemoryRetrievalProvider(RetrievalProvider):
             "jurisprudence": len(self._jurisprudence),
             "doctrine": len(self._doctrine),
             "backend": self.name,
+            "retrieval_tier": self.tier.value,
         }
+
+
+def create_retrieval_provider(
+    tier: RetrievalTier | str = RetrievalTier.BOOTSTRAP,
+) -> InMemoryRetrievalProvider:
+    """Fábrica de retrieval providers por nivel (fail-closed).
+
+    TEST y BOOTSTRAP → InMemoryRetrievalProvider (sin deps). PRODUCTION →
+    NotImplementedError con causa explícita: el retrieval persistente no
+    está implementado y NUNCA se sustituye silenciosamente por memoria
+    presentándolo como producción.
+    """
+    if isinstance(tier, str):
+        tier = RetrievalTier(tier)
+    if tier in (RetrievalTier.TEST, RetrievalTier.BOOTSTRAP):
+        return InMemoryRetrievalProvider()
+    raise NotImplementedError(
+        "Retrieval PRODUCTION (persistente: SQLite/Qdrant) no está "
+        "implementado todavía. El arranque de producción requiere ese "
+        "nivel o la aceptación explícita del nivel BOOTSTRAP (memoria, "
+        "sin persistencia entre reinicios). No se entrega un provider "
+        "en memoria disfrazado de producción."
+    )

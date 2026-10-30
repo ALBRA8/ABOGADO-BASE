@@ -1,0 +1,14 @@
+[
+ {
+  "sentencia_id": "SU-360-1999",
+  "page_filename": "sentencia.htm",
+  "url": "https://www.corteconstitucional.gov.co/relatoria/1999/SU-360-99.htm",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 8607,
+  "raw_bytes_hash": "867c0463fee3d665e6d301a823c051c02b1f1a8ed482346277da460a1544b18a",
+  "retrieval_timestamp": "2026-10-30T21:38:12+00:00",
+  "latency_ms": 1485.79,
+  "cached_at": "sentencia.htm"
+ }
+]

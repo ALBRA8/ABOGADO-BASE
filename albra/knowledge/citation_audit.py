@@ -507,6 +507,25 @@ class CitationAuditor:
             f"(fidelity={fidelity})."
         )
 
+    def get_article_text(
+        self, *, document_name: str, article_number: str | None
+    ) -> str | None:
+        """Texto completo de un artículo del corpus canónico (o None).
+
+        Fase Producción Real: lo usa el guard de versión histórica del
+        ``LegalKnowledgeEngine`` para escanear marcadores de modificación
+        en el texto REAL del artículo citado (no en el snippet).
+        """
+        doc = self._resolve_doc(document_name)
+        if doc is None:
+            return None
+        art = str(article_number) if article_number else ""
+        if not art or art not in doc["articles"]:
+            return None
+        entry = doc["articles"][art]
+        text = entry.get("text", "") if isinstance(entry, dict) else str(entry)
+        return text or None
+
     # ===== Paso 3: retrace_quotes =====
 
     def retrace_quotes(self, verified: list[Citation]) -> list[Citation]:

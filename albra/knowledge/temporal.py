@@ -24,6 +24,7 @@ Consultas distintas:
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -233,3 +234,131 @@ def normalize_status(status: str | None) -> str:
     if s in ("pendiente", "pending"):
         return "pendiente"
     return "vigente"
+
+
+# ===== Fase Producción Real — referencias temporales en español =====
+
+_MESES = {
+    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+    "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
+    "noviembre": 11, "diciembre": 12,
+}
+
+# "el 15 de marzo de 2018" / "15 de marzo de 2018" — fecha EXACTA
+_RE_FECHA_EXACTA = re.compile(
+    r'\b(\d{1,2})\s+de\s+(' + "|".join(_MESES) + r')\s+de\s+(\d{4})\b',
+    re.IGNORECASE,
+)
+
+# "los hechos de 2015" / "hechos ocurridos en 2015" / "año 2015" / "en 2015"
+_RE_ANIO = re.compile(r'\b(19\d{2}|20\d{2})\b')
+# Contextos NO temporales del año: IDENTIFICACIÓN de norma numerada
+# ("Ley 100 de 1993", "Decreto 410 de 1971"). El año va pegado al número
+# de la norma ("... 100 de "), no precedido de palabras temporales
+# ("los hechos de ", "en ", "durante ").
+_RE_ANIO_NO_TEMPORAL = re.compile(
+    r'(?:ley|decreto|acto\s+legislativo|sentencia|resoluci[oó]n|acuerdo)\s*'
+    r'(?:n[oº]?\.?\s*)?[A-Z]?[\d.\-/]*\s*de\s*$',
+    re.IGNORECASE,
+)
+
+
+def _anio_es_temporal(text: str, pos: int) -> bool:
+    """Un año es temporal salvo que identifique una norma (contexto previo)."""
+    window = text[max(0, pos - 70):pos].strip()  # SIN el año mismo
+    return not _RE_ANIO_NO_TEMPORAL.search(window)
+
+
+def parse_temporal_reference(text: str) -> tuple[date | None, str]:
+    """Extrae la fecha de referencia de una consulta en español.
+
+    Returns:
+        (fecha, precision):
+        - (YYYY-MM-DD, "exact")   — "el 15 de marzo de 2018"
+        - (YYYY-12-31, "approx")  — "hechos de 2015", "año 2015", "en 2015"
+          (fin de año: la fecha real de los hechos es incierta; el
+          consumidor DEBE declarar la aproximación)
+        - (None, "")              — sin referencia temporal
+    """
+    m = _RE_FECHA_EXACTA.search(text or "")
+    if m:
+        dia, mes, anio = int(m.group(1)), _MESES[m.group(2).lower()], int(m.group(3))
+        try:
+            return date(anio, mes, dia), "exact"
+        except ValueError:
+            return None, ""
+    for m in _RE_ANIO.finditer(text or ""):
+        if not _anio_es_temporal(text, m.start()):
+            continue
+        try:
+            return date(int(m.group(1)), 12, 31), "approx"
+        except ValueError:
+            continue
+    return None, ""
+
+
+# Marcadores de modificación con año de la norma modificatoria
+# (ventana de 240 caracteres tras el verbo marcador).
+_MOD_MARKERS = (
+    "modificad", "adicionad", "subrogad", "sustituid", "derogad",
+    "aumentad", "suspendid",
+)
+_RE_REF_NORMA = re.compile(
+    r'((?:Ley|Decreto(?:\s|-)?(?:Ley)?|Acto\s+Legislativo|Sentencia)\s+'
+    r'(?:N[oº]?\.?\s*)?[A-Z]?[\d./-]+\s+de\s+(\d{4}))',
+    re.IGNORECASE,
+)
+# "a partir del 1o. de enero de 2005" — fecha de entrada en vigor del cambio
+_RE_A_PARTIR = re.compile(
+    r'a partir del\s+(\d{1,2})[oº°]?\s+de\s+(' + "|".join(_MESES) + r')\s+de\s+(\d{4})',
+    re.IGNORECASE,
+)
+
+
+def extract_modification_years(article_text: str) -> list[dict[str, Any]]:
+    """Extrae los cambios (modificación/sustitución/etc.) con su fecha
+    efectiva a partir de los marcadores del texto del artículo.
+
+    Devuelve una lista de {referencia, anio_ley, fecha_efectiva} donde
+    ``fecha_efectiva`` es "a partir del DD de MES de YYYY" cuando el
+    marcador la declara, o el año de la norma modificatoria. La lista
+    está ORDENADA por año ascendente. Nada se inventa: solo se
+    extrae lo que el texto declara.
+    """
+    if not article_text:
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    lower = article_text.lower()
+    for kw in _MOD_MARKERS:
+        start = 0
+        while True:
+            i = lower.find(kw, start)
+            if i < 0:
+                break
+            window = article_text[i:i + 240]
+            for m in _RE_REF_NORMA.finditer(window):
+                ref, anio = m.group(1).strip(), int(m.group(2))
+                key = ref.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                eff = None
+                m_eff = _RE_A_PARTIR.search(window)
+                if m_eff:
+                    try:
+                        eff = date(
+                            int(m_eff.group(3)),
+                            _MESES[m_eff.group(2).lower()],
+                            int(m_eff.group(1)),
+                        ).isoformat()
+                    except ValueError:
+                        eff = None
+                out.append({
+                    "referencia": ref,
+                    "anio_ley": anio,
+                    "fecha_efectiva": eff or f"{anio}",
+                })
+            start = i + len(kw)
+    out.sort(key=lambda e: e["fecha_efectiva"])
+    return out

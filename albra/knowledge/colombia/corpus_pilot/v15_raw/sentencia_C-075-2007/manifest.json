@@ -1,0 +1,14 @@
+[
+ {
+  "sentencia_id": "C-075-2007",
+  "page_filename": "sentencia.htm",
+  "url": "https://www.corteconstitucional.gov.co/relatoria/2007/C-075-07.htm",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 480433,
+  "raw_bytes_hash": "3360a95d63943df4998cea01f41385e51548cdeab56ad1f145284cf7dbb4a917",
+  "retrieval_timestamp": "2026-10-30T21:38:44+00:00",
+  "latency_ms": 2856.41,
+  "cached_at": "sentencia.htm"
+ }
+]

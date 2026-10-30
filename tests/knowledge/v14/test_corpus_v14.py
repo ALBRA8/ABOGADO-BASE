@@ -273,7 +273,8 @@ def test_v14_does_not_overwrite_v13():
 def test_v14_stats_correct():
     """V14_STATS reflects the actual corpus."""
     assert V14_STATS["v14_corpus_version"] == "V1.4"
-    assert V14_STATS["v14_total_articles"] == 2107
+# Fase Producción Real: 2107→2106 (1 artículo fantasma de Ley 640 corregido)
+    assert V14_STATS["v14_total_articles"] == 2106
     assert V14_STATS["v14_documents"] == 5
     assert V14_STATS["v14_sentencias"] == 5
     assert V14_STATS["v14_raw_bytes_preserved"] is True

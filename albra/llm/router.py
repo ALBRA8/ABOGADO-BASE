@@ -42,6 +42,7 @@ from albra.llm.providers import (
     LLMProvider,
     LLMResponse,
     MockProvider,
+    NVIDIAProvider,
     OllamaProvider,
     OpenAIProvider,
 )
@@ -52,6 +53,9 @@ _PROVIDER_CLASSES: dict[str, type[LLMProvider]] = {
     "anthropic": AnthropicProvider,
     "openai": OpenAIProvider,
     "ollama": OllamaProvider,
+    # Fase Producción Real: el proveedor REAL (NVIDIA NIM) estaba fuera
+    # del router — get_default_router() no podía alcanzarlo jamás.
+    "nvidia": NVIDIAProvider,
 }
 
 # Cost per 1M tokens (input + output) declared as metadata. Mock and
@@ -181,20 +185,53 @@ class LLMRouter:
         self._init_providers()
 
     def _init_providers(self) -> None:
-        # Inicializa todos los providers (lazy: solo cargan API keys si disponibles)
-        self._providers = {
-            name: cls() for name, cls in _PROVIDER_CLASSES.items()
-        }
+        """Construye los providers registrados con fallo CONTENIDO.
+
+        Fase Producción Real: NVIDIAProvider sin NVIDIA_API_KEY lanza
+        NotImplementedError en __init__ — antes eso CRASHEABA todo el
+        router (nvidia ni siquiera estaba en el mapa; al añadirlo, la
+        construcción eager reventaba). Ahora cada provider falla SOLO
+        su entrada: el router arranca y la falta de configuración queda
+        registrada en ``_provider_errors`` (fail-closed por provider,
+        no crash global, no mock silencioso).
+        """
+        self._providers = {}
+        self._provider_errors: dict[str, str] = {}
+        for name, cls in _PROVIDER_CLASSES.items():
+            try:
+                self._providers[name] = cls()
+            except NotImplementedError as e:
+                # Provider real sin credenciales/SDK: no disponible.
+                self._provider_errors[name] = str(e)[:200]
+                self.log.warning("llm.provider_not_configured", provider=name, reason=str(e)[:120])
+            except Exception as e:  # noqa: BLE001 — un provider roto no tumba el router
+                self._provider_errors[name] = f"{type(e).__name__}: {e}"[:200]
+                self.log.warning("llm.provider_init_failed", provider=name, error=str(e)[:120])
 
     def get_provider(self, name: str | None = None) -> LLMProvider:
-        """Devuelve provider por nombre. Si no existe o no disponible,
-        fallback a Mock."""
+        """Devuelve provider por nombre.
+
+        - Desconocido → fallback a Mock (con warning).
+        - Conocido pero NO configurado (p.ej. nvidia sin API key) →
+          NotImplementedError con la causa registrada: el caller
+          (generate/chat) lo captura y degrada CON warning explícito —
+          nunca un mock silencioso presentado como real.
+        """
         target = name or self.default_provider
         provider = self._providers.get(target)
         if not provider:
+            if target in self._provider_errors:
+                raise NotImplementedError(
+                    f"provider '{target}' no está configurado: "
+                    f"{self._provider_errors[target]}"
+                )
             self.log.warning("llm.unknown_provider", requested=target, fallback="mock")
             return self._providers["mock"]
         return provider
+
+    def provider_errors(self) -> dict[str, str]:
+        """Registro honesto de providers conocidos pero no configurados."""
+        return dict(self._provider_errors)
 
     def generate(self, prompt: str, *, preferred_provider: str | None = None, **kwargs) -> LLMResponse:
         """Genera respuesta. Si provider preferido falla, fallback a Mock."""

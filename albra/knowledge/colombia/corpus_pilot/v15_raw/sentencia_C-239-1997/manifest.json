@@ -1,0 +1,14 @@
+[
+ {
+  "sentencia_id": "C-239-1997",
+  "page_filename": "sentencia.htm",
+  "url": "https://www.corteconstitucional.gov.co/relatoria/1997/C-239-97.htm",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 632225,
+  "raw_bytes_hash": "37603f2bd9a27638eceb81d53477edabbd7d55428e47d665c894f1b19f0dc9a1",
+  "retrieval_timestamp": "2026-10-30T21:38:41+00:00",
+  "latency_ms": 2557.18,
+  "cached_at": "sentencia.htm"
+ }
+]

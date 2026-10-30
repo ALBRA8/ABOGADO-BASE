@@ -1,0 +1,14 @@
+[
+ {
+  "sentencia_id": "T-760-2008",
+  "page_filename": "sentencia.htm",
+  "url": "https://www.corteconstitucional.gov.co/relatoria/2008/T-760-08.htm",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 2099989,
+  "raw_bytes_hash": "68777ec244b2effd2b188c6bc8c35149c3722aa802fdacbb99ff3ab8a4ab63e6",
+  "retrieval_timestamp": "2026-10-30T21:38:09+00:00",
+  "latency_ms": 3824.32,
+  "cached_at": "sentencia.htm"
+ }
+]

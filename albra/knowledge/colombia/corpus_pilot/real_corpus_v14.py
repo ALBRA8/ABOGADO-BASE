@@ -90,9 +90,72 @@ def _load_raw_bytes(slug: str) -> tuple[bytes, list[dict[str, Any]]]:
     return raw_combined, pages_meta
 
 
+_NOTE_START = re.compile(
+    r'<\s*(Art(?:[íi]|&[iI]acute;)culo|Articulo'
+    r'|Literal|Numeral|Inciso|Par(?:[áa]|&[aA]acute;)grafo'
+    r'|Penas?|Aparte|Texto|T[eé]rmino|Concordancias|Nota)\b'
+)
+
+
+def _protect_editorial_notes(html_text: str) -> str:
+    """Protege las notas editoriales <...> de la fuente (Fase Producción Real).
+
+    Secretaría del Senado marca las notas de modificación/vigencia con
+    corchetes angulares ("<Artículo subrogado por el artículo 1o. de la
+    Ley 50 de 1990. El nuevo texto es el siguiente:>"). El stripping de
+    tags las ELIMINABA — destruyendo exactamente la evidencia que el
+    motor de vigencia necesita. Aquí se convierten a 【...】 (con sus
+    tags internos limpiados) ANTES del stripping.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(html_text)
+    while i < n:
+        m = _NOTE_START.search(html_text, i)
+        if not m:
+            out.append(html_text[i:])
+            break
+        out.append(html_text[i:m.start()])
+        j = m.start() + 1
+        closed = False
+        while j < n:
+            ch = html_text[j]
+            if ch == "<":
+                # tag interno de la nota (p.ej. <A href="...">16</A>): saltarlo
+                k = html_text.find(">", j)
+                if k < 0:
+                    j = n
+                    break
+                j = k + 1
+                continue
+            if ch == ">":
+                closed = True
+                break
+            j += 1
+        if not closed:
+            # sin cierre: no era una nota — conservar tal cual
+            out.append(m.group(0))
+            i = m.end()
+            continue
+        note = html_text[m.start():j + 1]
+        # Quitar SOLO los corchetes de la nota primero (si se re-corre el
+        # stripper de tags sobre `<...>` completo, el propio contenido de
+        # la nota matchea el patrón de tag y se pierde todo el cuerpo).
+        body = note[1:-1]
+        body = re.sub(r"<[^>]*>", " ", body)  # tags REALES internos (p.ej. <A href>)
+        out.append("【" + body.strip() + "】")
+        i = j + 1
+    return "".join(out)
+
+
 def _normalize_html_to_text(raw_html: str) -> str:
     """Strip HTML tags + entities + extra whitespace → clean text."""
+    # 1) Decode HTML entities PRIMERO: los cierres de nota "&gt;" solo
+    #    entonces se vuelven '>' literales visibles para la protección.
     text = html_mod.unescape(raw_html)
+    # 2) Fase Producción Real: proteger las notas editoriales <...>
+    #    ANTES del stripping (son la evidencia de vigencia, no tags).
+    text = _protect_editorial_notes(text)
     text = re.sub(r'<script[^>]*>.*?</script>', ' ', text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r'<style[^>]*>.*?</style>', ' ', text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r'<[^>]+>', ' ', text)
@@ -102,9 +165,16 @@ def _normalize_html_to_text(raw_html: str) -> str:
 
 # Pattern A: "ARTICULO N." or "ARTICULO No." (Spanish ordinal 1o, 2o, etc.)
 _PATTERN_A = re.compile(
-    r'ART[IÍ]CULO\s+(\d+)(?:o|º|°)?\.\s*(.*?)(?=ART[IÍ]CULO\s+\d+(?:o|º|°)?\.|$)',
-    re.DOTALL | re.IGNORECASE,
+    r'ART[IÍ]CULO\s+(\d+)(?:o|º|°)?\.\s*(.*?)(?=(?:<[^>]+>|\s)*ART[IÍ]CULO\s+\d+(?:o|º|°)?\.|$)',
+    re.DOTALL,
 )
+# Fase Producción Real (corrección de calidad de datos): SIN IGNORECASE.
+# Los encabezados de artículo van en MAYÚSCULAS; las referencias dentro
+# de notas de subrogación/modificación van en minúscula ("subrogado por
+# el artículo 10 de la Ley 1618..."). Con IGNORECASE el lookahead cortaba
+# el texto del artículo EN MEDIO de la nota (p.ej. CST art. 23 quedaba en
+# "...subrogado por el" — 48 caracteres). El prefijo (?:<[^>]+>|\s)*
+# permite saltar los tags/whitespace entre artículos reales.
 # Pattern B: anchor-based `<a class="bookmarkaj" name="N">...</a>`
 _PATTERN_B_ANCHOR = re.compile(
     r'<a\s+[^>]*name="(\d+)"[^>]*>(.*?)(?=<a\s+[^>]*name="\d+"|</body>|$)',

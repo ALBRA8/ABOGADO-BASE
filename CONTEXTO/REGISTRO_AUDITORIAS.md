@@ -126,3 +126,73 @@ Comparación componente a componente con el origen (`ALBRA8/DESPACHO-JURIDICO`, 
 - **SHA final:** el commit de cierre es el HEAD de `feat/seed-parity` tras esta entrada (el SHA exacto se documenta en el informe final, que vive fuera del repositorio; un SHA no puede autocontenerse). Commit: "feat: cierre funcional del abogado — análisis jurídico, contrato de veredicto, autonomía de exam, auditoría v14, readiness".
 - **Estado:** working tree limpio; sin push/merge/release.
 - **Clean-room:** clon del SHA final + `pip install -e ".[dev]"` + suite completa (resultado en el informe final).
+
+---
+
+## A-ABOGADO-BASE-003 — Fase Producción Real (PROMPT MAESTRO: de agente técnicamente preparado a agente jurídico apto para servicio real)
+
+- **Fecha:** 2026-10-30
+- **SHA inicial:** `ef3681020957cbb93107ba54c1290fa30acd334f` (cierre funcional, CI remoto verde, push autorizado)
+- **Auditor:** ALBRA Constructor (auto-auditoría con ejecución real y batería adversarial).
+- **Estado de Git antes de modificar:** rama `feat/seed-parity`, HEAD = SHA inicial, working tree sin cambios de contenido.
+
+### FASE 0 — Auditoría de producción (hallazgos que motivaron los cambios)
+
+| # | Hallazgo | Evidencia |
+|---|---|---|
+| T1 | Corpus canónico limitado a 12 documentos (2.200 arts): sin civil, penal sustantivo, CPACA, comercio, seguridad social completa, contratación completa | inventario `canonical_corpus_documents()` |
+| T2 | Consultas históricas rotas: "¿qué decía el art. X el 15-03-2018?" abstenía (el clasificador no parseaba la fecha) y "hechos de 2015" se clasificaba `current` — riesgo de usar texto actual para hechos históricos | ejecución viva; `query_classifier.py:202-210` |
+| T3 | `RealProviderGuard.is_real()` tenía un try/except MUERTO: documentaba una sonda health-check y ejecutaba `return True` | `real_provider_guard.py:88-96` |
+| T4 | `get_default_router()` no exponía el proveedor real (nvidia ausente de `_PROVIDER_CLASSES`) | `router.py:52-57` |
+| T5 | Calidad de datos: el extractor DESTRUYA las notas editoriales de modificación `<Artículo subrogado/modificado por...>` (las confundía con tags HTML) — la evidencia de vigencia era invisible (86 mods detectadas vs 406 reales); 1 artículo fantasma en Ley 640 (referencia en prosa capturada como artículo) | reconstrucción desde raw_bytes preservados |
+| T6 | Keyword matching por substring: "comercIA**ntes**" contenía "antes" → hints históricos espurios | batería adversarial |
+| T7 | Fuentes oficiales: catálogo declarativo sin distinción REGISTERED/FETCHABLE/VERIFIED/CURRENT | `sources.py` |
+
+### Cambios realizados (componente a componente, sin arquitectura paralela)
+
+| Componente | Cambio | Prueba |
+|---|---|---|
+| Corpus V1.5 (NUEVO) | 6 normas completas ingeridas de secretariasenado.gov.co (Código Civil 2673, Código Penal 598, CPACA 321, Comercio 2037, Ley 100 completa 296, Ley 80 completa 83) + 5 sentencias reales de corteconstitucional.gov.co (T-760/08, SU-360/99, C-355/06, C-239/97, C-075/07). raw_bytes preservados (v15_raw/, 33 MB) + SHA-256 por página + timestamps. Same-method que V1.4 | `tests/knowledge/test_corpus_v15.py` (15 tests) |
+| corpus_seed | Canónico = V1.5+V1.4 (21 docs / 8114 arts / 10 sentencias); subsumpción de fragmentos V1.3 de Ley 100/80; enriquecimiento de jurisprudencia con metadatos reales | `test_corpus_seed.py` |
+| `official_sources.py` (NUEVO) | Capa Official Source: estados demostrables SOURCE_REGISTERED/FETCHABLE/VERIFIED/CURRENT/CHANGED/UNREACHABLE con evidencia (manifests); `reverify()` re-consulta y compara hash — SOURCE_CURRENT demostrado EN VIVO contra la fuente (T-760/08 y C-239/97, 2026-10-30T22:26Z) | `test_official_sources.py` (7) |
+| `coverage_plan.py` (NUEVO) | Matriz de cobertura por dominio/subdominio/fuente/norma con estados honestos (PRESENT_FULL solo con corpus ingerido; ABSENT_BLOCKED/DECISION/PLANNED documentados) | `test_coverage_plan.py` (6) |
+| `temporal.py` | `parse_temporal_reference()` (fechas exactas en español; años aproximados DECLARADOS; "Ley 100 de 1993" NO es fecha) + `extract_modification_years()` (marcadores con fecha efectiva) | `test_temporal_production.py` |
+| `query_classifier.py` | as_of exacto/approx + precisión declarada; lookahead de norma termina en fechas/"cuando"; keywords con límite de palabra (fix "comercIAntes") | id. |
+| `legal_engine.py` | Guard de versión histórica: si un artículo citado cambió DESPUÉS de la fecha consultada → ABSTENCIÓN con causa (nunca texto consolidado como histórico); si no cambió → respuesta con CONTEXTO TEMPORAL explícito | `test_temporal_production.py` (E2E) |
+| V1.4/V1.5 extractor | Pattern case-sensitive (headers MAYÚSCULAS vs referencias en prosa) + protección de notas editoriales 【...】 → 406 artículos con evidencia real de modificación en V1.4; eliminado el artículo fantasma (2107→2106) | `test_v80_fase4_vigency_false_positives.py` |
+| `retrieval_providers.py` | Niveles TEST/BOOTSTRAP/PRODUCTION: InMemory=BOOTSTRAP explícito; fábrica fail-closed para PRODUCTION (persistente no implementado — nunca memoria disfrazada de producción) | `tests/llm/test_production_phase_guards.py` |
+| `real_provider_guard.py` | Sonda REAL de salud (`probe()`) con matriz MOCK/SCAFFOLD_NOT_CONFIGURED/REAL_HEALTHY/REAL_UNAVAILABLE/REAL_FAILED (cacheada); try/except muerto eliminado; `require_real(probe_health=True)` | id. (13) |
+| `router.py` | nvidia en el mapa + construcción con fallo contenido (`_provider_errors`) — el router arranca sin credenciales y registra la causa | `tests/llm/` |
+| `jurisprudence_metadata.py` (NUEVO) | Metadatos reales de las 10 sentencias extraídos del texto (9/10 fechas, 8/10 ponentes, 5/10 expedientes, 6/10 salas; lo ausente queda None); clasificación de precedente (VERIFICADA/VINCULANTE/PERSUASIVA/CONTRADICTORIA/NO_VERIFICADA) | `test_jurisprudence_metadata.py` (10) |
+| `response_policy.py` (NUEVO) | Política HITL determinista: ANSWER / ANSWER_WITH_WARNING / ABSTAIN / HUMAN_REVIEW_REQUIRED con precedencia protectora | `tests/legal_battery/` |
+| `eval/legal_rubric.py` (NUEVO) | Rúbrica de abogado: 14 dimensiones; hallucinated legal authority ⟹ FAIL | id. |
+| `doctor/builtin_checks.py` | Sonda legal_knowledge con conteo canónico dinámico | suite doctor |
+
+### Batería de casos (FASE 7) y adversarial (FASE 8)
+
+- **Batería 8/8 dominios** (civil, laboral, penal, procesal, administrativo, constitucional, comercial, seguridad social): todos responden con evidencia `literal_retraced` y auditoría en verde (`tests/legal_battery/test_case_battery.py`).
+- **Adversarial 12/12 bloqueado correctamente**: norma inventada→abstención; sentencia inexistente→abstención; versión cambiada→guard; artículo inexistente→abstención; jurisdicción extranjera→abstención; fecha anterior→abstención; cita falsa→fidelity degradada; hipótesis≠hecho; consulta vacía→abstención; precedente conflictivo→CONTRADICTORIA; gate no evadible; fuente REGISTERED nunca VERIFIED (`tests/legal_battery/test_adversarial.py`).
+
+### Bloqueos documentados (no ocultados)
+
+1. **LLM real no ejecutado**: sin NVIDIA_API_KEY en el entorno. El camino real existe (NVIDIAProvider + guard + health probe) y falla cerrado; los pasos 7-11 del examen siguen probados por estructura y guard (Mock→BLOCKED).
+2. **NLI de paráfrasis**: no implementada (heredada V8.0); `paraphrase_verified: False` honesto.
+3. **Retrieval persistente (PRODUCTION tier)**: no implementado; la fábrica falla cerrado.
+4. **Cobertura ausente**: familia especial (Ley 1098/2006 — bloqueo de red en los intentos de la fase), CSJ (relatoría js-driven, requiere Playwright), decretos reglamentarios (funcionpublica inalcanzable), tributario (decisión de alcance pendiente).
+5. **SU-360/99**: metadatos incompletos (formato de página distinto) — None honesto.
+6. **CI/clean-room del nuevo estado**: pendientes de push autorizado (como en el cierre anterior).
+
+### Ejecución de pruebas (evidencia)
+
+| Entorno | Resultado |
+|---|---|
+| Suite completa py3.12 (venv del repo) | 1331 collected, 1320 passed, 11 skipped, 0 fallos (+98 tests nuevos) |
+| Batería 8 dominios | 8/8 con evidencia literal_retraced |
+| Adversarial | 12/12 comportamiento protector correcto |
+| Ruff | pendiente de ejecución final (targets de CI) |
+
+### Registro del SHA final
+
+- **SHA final:** el commit de esta fase es el HEAD de `feat/seed-parity` tras esta entrada (el SHA exacto vive en el informe, fuera del repositorio). Commit: "feat: fase producción real — corpus V1.5 (21 docs/8114 arts), fuentes oficiales demostrables, vigencia real con guard histórico, jurisprudencia con metadatos, batería+adversarial, rúbrica y política HITL".
+- **Estado:** working tree limpio tras commit; sin push/merge/release/despliegue (requieren autorización).
+- **Dictamen:** CONTROLLED PILOT READY (ver INFORME_PRODUCCION_REAL_ABOGADO_ALBRA.md — la evidencia NO alcanza para PRODUCTION READY: sin LLM real ejecutado, sin retrieval persistente, sin clean-room/CI del nuevo SHA).

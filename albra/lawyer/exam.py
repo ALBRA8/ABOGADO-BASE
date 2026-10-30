@@ -242,14 +242,20 @@ class LawyerExam:
         std_limitations = [
             "El borrador generado requiere revisión y firma de un abogado "
             "humano calificado antes de cualquier actuación procesal real.",
-            "El corpus jurídico V1.4 cubre Constitución 1991 (380 arts.), "
-            "Ley 1564/2012 CGP (627 arts.), Ley 640/2001 (51 arts.), "
-            "Ley 906/2004 CPP (564 arts.) y Código Sustantivo del Trabajo "
-            "(485 arts.) — total 2107 artículos. Citas fuera de estos "
-            "cuerpos se marcan como NO_RESUELTO.",
-            "El corpus V1.4 incluye 5 sentencias T-001/002/003/100/445-2020 "
-            "en texto reconstruido (sin parseo por artículo). Otras "
-            "sentencias no están en el corpus.",
+            "El corpus jurídico V1.5+V1.4 cubre Constitución 1991 (380 "
+            "arts.), Código Civil (Ley 57/1887, 2673 arts.), Código Penal "
+            "(Ley 599/2000, 598 arts.), CPACA (Ley 1437/2011, 321 arts.), "
+            "Código de Comercio (Decreto 410/1971, 2037 arts.), Ley "
+            "1564/2012 CGP (627 arts.), Ley 640/2001 (50 arts.), Ley "
+            "906/2004 CPP (564 arts.), Código Sustantivo del Trabajo (485 "
+            "arts.), Ley 100/1993 (296 arts.) y Ley 80/1993 (83 arts.) — "
+            "total 8114 artículos. Citas fuera de estos cuerpos se marcan "
+            "como NO_RESUELTO.",
+            "El corpus incluye 10 sentencias reales de la Corte "
+            "Constitucional (T-001/002/003/100/445-2020 y T-760/08, "
+            "SU-360/99, C-355/06, C-239/97, C-075/07) en texto "
+            "reconstruido (sin parseo por artículo). Otras sentencias no "
+            "están en el corpus.",
         ]
         for lim in std_limitations:
             if lim not in self.result.limitations:
@@ -489,7 +495,7 @@ class LawyerExam:
             name="Investigación y procedencia de fuentes",
             status="ok" if any_found else "abstained",
             summary=(
-                f"Fuentes encontradas en corpus V1.4: {sum(1 for e in evidence if e['type'] == 'found_in_corpus')} "
+                f"Fuentes encontradas en corpus V1.5+V1.4: {sum(1 for e in evidence if e['type'] == 'found_in_corpus')} "
                 f"de {len(required)} requeridas."
             ),
             evidence=evidence,
@@ -785,7 +791,7 @@ class LawyerExam:
             "una norma que no está en la lista, ABSTENTE de hacerlo y "
             "decláralo como NO_RESUELTO.\n\n"
             f"HECHOS DEL CASO:\n{json.dumps(self.case_facts.get('facts', []), ensure_ascii=False)}\n\n"
-            f"NORMAS VERIFICADAS (corpus V1.4 — Constitución/CGP/CPP/CST/Ley 640):\n{article_texts}\n\n"
+            f"NORMAS VERIFICADAS (corpus V1.5+V1.4 — Constitución/Civil/Penal/CPACA/Comercio/CGP/CPP/CST/Ley 640/Ley 100/Ley 80):\n{article_texts}\n\n"
             "ESTRATEGIA (máx 500 palabras, en español, distinguiendo "
             "hechos / inferencias / conclusiones):"
         )
@@ -1046,7 +1052,7 @@ class LawyerExam:
             f"HECHOS: {json.dumps(self.case_facts.get('facts', []), ensure_ascii=False)}\n"
             f"ESTRATEGIA: {self._strategy_text}\n"
             f"CONTRAARGUMENTOS (a refutar): {self._counter_text or 'N/A'}\n"
-            f"NORMAS VERIFICADAS (corpus canónico V1.4+V1.3 — Constitución/CGP/CPP/CST/Ley 640/Ley 100/Ley 80):\n" + "\n".join(
+            f"NORMAS VERIFICADAS (corpus canónico V1.5+V1.4 — Constitución/Civil/Penal/CPACA/Comercio/CGP/CPP/CST/Ley 640/Ley 100/Ley 80):\n" + "\n".join(
                 (
                     f"- {v['document']} art. {v['article']}: {v['article_text_preview']}"
                     if v.get("article_text_preview")
@@ -1409,7 +1415,7 @@ class LawyerExam:
         prompt = (
             "Eres un abogado colombiano haciendo revisión interna del "
             "siguiente borrador. Verifica:\n"
-            "1. Que todas las normas citadas estén en el corpus V1.4 "
+            "1. Que todas las normas citadas estén en el corpus V1.5+V1.4 "
             "(no inventadas).\n"
             "2. Coherencia entre hechos y pretensiones.\n"
             "3. Que el borrador no afirme nada que no esté respaldado "

@@ -194,3 +194,64 @@ Ver A-ABOGADO-BASE-002 § Limitaciones restantes: paráfrasis sin NLI,
 examen E2E con LLM real pendiente de API key, mensaje stale del
 fallback en ReasoningEngine (camino de borde), fuentes oficiales sin
 integración real, vigencia limitada al corpus canónico.
+
+---
+
+## Actualización: FASE PRODUCCIÓN REAL (2026-10-30, post ef368102)
+
+El abogado completó la fase de producción real sobre `feat/seed-parity`
+(SHA inicial `ef3681020957cbb93107ba54c1290fa30acd334f`). Registro
+completo en REGISTRO_AUDITORIAS.md A-ABOGADO-BASE-003. Estado REAL:
+
+### Cobertura jurídica real (corpus canónico V1.5+V1.4)
+
+- **21 documentos / 8.114 artículos / 10 sentencias reales** (antes
+  12/2.200/5): se añadieron Código Civil (Ley 57/1887, 2.673 arts.),
+  Código Penal (Ley 599/2000, 598), CPACA (Ley 1437/2011, 321), Código
+  de Comercio (Decreto 410/1971, 2.037), Ley 100/1993 completa (296),
+  Ley 80/1993 completa (83) y 5 sentencias emblemáticas de la Corte
+  Constitucional (T-760/08, SU-360/99, C-355/06, C-239/97, C-075/07).
+- Todo con raw_bytes preservados (v14_raw/, v15_raw/), SHA-256 por
+  página y timestamps de la fuente oficial.
+
+### Capacidades nuevas de producción
+
+1. **Official Source Layer** (`official_sources.py`): estados
+   demostrables REGISTERED/FETCHABLE/VERIFIED/CURRENT/CHANGED/UNREACHABLE
+   con re-verificación por hash (SOURCE_CURRENT demostrado en vivo).
+2. **Vigencia real**: fechas exactas y aproximadas (declaradas) en
+   español; guard de versión histórica — si el artículo citado cambió
+   DESPUÉS de la fecha consultada, el agente ABSTIENE (nunca texto
+   consolidado como histórico); 406 artículos con evidencia de
+   modificación restaurada (las notas <...> de la fuente ya no se
+   destruyen).
+3. **Jurisprudencia con metadatos reales**: expediente, ponentes, sala
+   y fecha extraídos del texto de la fuente (9/10 fechas, 8/10
+   ponentes; lo ausente queda None) + clasificación de precedente.
+4. **Niveles de retrieval** TEST/BOOTSTRAP/PRODUCTION con fábrica
+   fail-closed (el nivel persistente no está implementado y no se
+   simula).
+5. **RealProviderGuard con sonda real**: matriz MOCK/SCAFFOLD/
+   REAL × HEALTHY/UNAVAILABLE/FAILED; el router ya alcanza el proveedor
+   real (nvidia) con fallo contenido sin credenciales.
+6. **Política HITL determinista** (`response_policy.py`) y **rúbrica de
+   abogado** (`eval/legal_rubric.py`, hallucinated authority ⟹ FAIL).
+
+### Estado de validación
+
+- Suite completa: 1331 collected / 1320 passed / 11 skipped (py3.12;
+  +98 tests respecto del cierre anterior). Ruff limpio.
+- Batería 8/8 dominios con evidencia literal_retraced; adversarial
+  12/12 con comportamiento protector correcto.
+- CI en GitHub Actions del NUEVO estado: PENDIENTE (push requiere
+  autorización). Clean-room del nuevo SHA: PENDIENTE.
+- LLM real: sin NVIDIA_API_KEY en el entorno — no ejecutado; el camino
+  existe y falla cerrado.
+
+### Dictamen de la fase
+
+**CONTROLLED PILOT READY** — apto para piloto controlado con revisión
+humana obligatoria en cada entrega; NO es PRODUCTION READY (sin
+retrieval persistente, sin LLM real ejecutado, cobertura ausente en
+familia especial/CSJ/decretos/tributario, sin CI/clean-room del nuevo
+SHA). Detalle completo en INFORME_PRODUCCION_REAL_ABOGADO_ALBRA.md.

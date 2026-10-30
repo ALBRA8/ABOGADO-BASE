@@ -56,6 +56,7 @@ class RealProviderGuard:
     ) -> None:
         self._provider = provider
         self._role = role
+        self._last_probe: dict[str, Any] | None = None
 
     @property
     def provider_name(self) -> str:
@@ -72,36 +73,91 @@ class RealProviderGuard:
         return bool(getattr(self._provider, "is_external", False))
 
     def is_real(self) -> bool:
-        """True iff the wrapped provider is real (not mock, not scaffold).
+        """True iff the wrapped provider is of REAL type (not mock/scaffold).
 
-        A provider is real when:
-          - is_mock == False
-          - is_external == True (makes real HTTP calls)
-          - The provider is constructible (no NotImplementedError raised
-            at construction time — which means the API key is present
-            and the SDK is installed).
+        Fase Producción Real — semántica HONESTA y explícita:
+          - Clasificación de TIPO: is_mock == False Y is_external == True
+            Y el proveedor está construido (la construcción ya falló
+            cerrado en __init__ si no había API key/SDK).
+          - Esta función NO ejecuta health-check (el try/except previo
+            era código muerto: "documentaba una sonda que no existía").
+            Para el estado de SALUD real use ``probe()`` (llamada real
+            al proveedor, con cache) — distinción exigida:
+            MOCK / EXTERNAL / REAL × HEALTHY / UNAVAILABLE / FAILED.
         """
         if self.is_mock:
             return False
         if not self.is_external:
             return False
-        # Try a probe — if construction or health_check raises
-        # NotImplementedError, the provider is not real-yet.
-        try:
-            # health_check doesn't make a heavy call; NVIDIA's version
-            # sends a 1-token ping. We use it to probe real availability.
-            # If the probe itself fails, the provider is real-but-down.
-            return True
-        except NotImplementedError:
-            return False
+        return True
 
-    def require_real(self, reason: str) -> None:
+    def probe(self, *, timeout: float = 8.0, use_cache: bool = True) -> dict[str, Any]:
+        """Sonda REAL de salud del proveedor (matriz inequívoca).
+
+        Estados:
+          - MOCK                     — el proveedor es sintético.
+          - SCAFFOLD_NOT_CONFIGURED  — scaffold sin SDK/API key (o sin
+                                       health_check ejecutable).
+          - REAL_HEALTHY             — health_check respondió disponible.
+          - REAL_UNAVAILABLE         — error de conexión/timeout.
+          - REAL_FAILED              — el proveedor respondió NO
+                                       disponible o error no de red.
+
+        El resultado se cachea por instancia (``use_cache=True``) para
+        no golpear al proveedor en cada consulta; ``use_cache=False``
+        fuerza una sonda fresca. Sin red, el estado es UNAVAILABLE —
+        nunca se simula salud.
+        """
+        if use_cache and self._last_probe is not None:
+            return dict(self._last_probe)
+        result: dict[str, Any]
+        if self.is_mock:
+            result = {"state": "MOCK", "detail": "provider is rule-based/synthetic"}
+        elif not self.is_external:
+            result = {
+                "state": "SCAFFOLD_NOT_CONFIGURED",
+                "detail": "provider is a scaffold (no real HTTP calls / no API key)",
+            }
+        else:
+            hc = getattr(self._provider, "health_check", None)
+            if hc is None:
+                result = {
+                    "state": "SCAFFOLD_NOT_CONFIGURED",
+                    "detail": "external provider without health_check probe",
+                }
+            else:
+                try:
+                    hc_result = hc()
+                    available = bool(hc_result.get("available"))
+                    result = {
+                        "state": "REAL_HEALTHY" if available else "REAL_FAILED",
+                        "detail": {
+                            k: v for k, v in hc_result.items()
+                            if k not in ("api_key",)
+                        },
+                    }
+                except NotImplementedError as e:
+                    result = {"state": "SCAFFOLD_NOT_CONFIGURED", "detail": str(e)[:200]}
+                except (ConnectionError, TimeoutError, OSError) as e:
+                    result = {"state": "REAL_UNAVAILABLE", "detail": f"{type(e).__name__}: {e}"[:200]}
+                except Exception as e:  # noqa: BLE001 — estado del entorno se reporta
+                    result = {
+                        "state": "REAL_UNAVAILABLE",
+                        "detail": f"{type(e).__name__}: {e}"[:200],
+                    }
+        self._last_probe = dict(result)
+        return dict(result)
+
+    def require_real(self, reason: str, *, probe_health: bool = False) -> None:
         """Raise RealProviderGuardError if the provider is not real.
 
         Args:
             reason: A short string describing why a real provider is
                 required (e.g. "lawyer acceptance flow", "tutela draft").
                 Included in the error message for audit visibility.
+            probe_health: si True, exige además REAL_HEALTHY (sonda real;
+                sin red → BLOCKED — nunca una respuesta aparentemente
+                válida sobre un proveedor caído).
         """
         if self.is_mock:
             raise RealProviderGuardError(
@@ -118,6 +174,15 @@ class RealProviderGuard:
                 f"Scaffolds (Anthropic/OpenAI without SDK) are not allowed "
                 f"in the acceptance flow."
             )
+        if probe_health:
+            state = self.probe().get("state")
+            if state != "REAL_HEALTHY":
+                raise RealProviderGuardError(
+                    f"Real provider required for {self._role} ({reason}); "
+                    f"health probe says {state}. FAIL/DEGRADE/ABSTAIN — "
+                    f"nunca una respuesta aparentemente válida sobre un "
+                    f"proveedor caído."
+                )
 
     def run_real(
         self,
@@ -211,13 +276,15 @@ class RealProviderGuard:
             return True
         return False
 
-    def explain_state(self) -> dict[str, Any]:
+    def explain_state(self, *, probe_health: bool = False) -> dict[str, Any]:
         """Return a structured explanation of the guard's current state.
 
         Used for audit logging and for declaring the case BLOCKED with
         an explicit cause when the real provider is unavailable.
+        ``probe_health=True`` añade la sonda REAL (con cache) — la
+        distinción MOCK/EXTERNAL/REAL × HEALTHY/UNAVAILABLE/FAILED.
         """
-        return {
+        state = {
             "role": self._role,
             "provider": self.provider_name,
             "is_mock": self.is_mock,
@@ -229,3 +296,6 @@ class RealProviderGuard:
                 else "SCAFFOLD"
             ),
         }
+        if probe_health:
+            state["health"] = self.probe()
+        return state

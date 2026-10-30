@@ -31,8 +31,8 @@ import pytest
 from albra.identity.agent import Agent
 from albra.identity.manifest import AGENT_MANIFEST
 
-CANONICAL_DOCS = 12
-CANONICAL_ARTICLES = 2200
+CANONICAL_DOCS = 21
+CANONICAL_ARTICLES = 8114
 
 
 @pytest.fixture
@@ -85,9 +85,9 @@ def test_agent_boot_seeds_canonical_corpus(strong_secrets, in_memory_storage):
     )
     stats = report.get("stats", {})
     assert stats.get("articles") == CANONICAL_ARTICLES, (
-        f"2.200 artículos indexados esperados, got {stats.get('articles')}"
+        f"8.114 artículos indexados esperados, got {stats.get('articles')}"
     )
-    assert report.get("corpus_version") == "V1.4+V1.3"
+    assert report.get("corpus_version") == "V1.5+V1.4"
     # Sin documentos con hash inválido ni rechazados (integridad).
     assert report.get("skipped_hash_mismatch") == []
     assert report.get("rejected") == []
@@ -167,12 +167,13 @@ def test_agent_legal_query_full_route(strong_secrets, in_memory_storage):
 def test_agent_legal_query_abstains_without_evidence(strong_secrets, in_memory_storage):
     """P0: consulta jurídica sin corpus aplicable → abstención correcta.
 
-    El Código Civil NO está en el corpus canónico; el agente NO inventa.
+    La Ley 1952 de 2019 (Código General Disciplinario) es una norma REAL
+    de CO que NO está en el corpus canónico; el agente NO inventa.
     """
     agent = Agent()
     _run(agent.boot())
     result = _run(agent.process(
-        "¿Qué establece el artículo 1602 del Código Civil sobre los contratos?",
+        "¿Qué establece el artículo 66 de la Ley 1952 de 2019 sobre el régimen disciplinario?",
         user="test", user_role="admin",
     ))
     assert result.get("routed_to") == "legal_engine"

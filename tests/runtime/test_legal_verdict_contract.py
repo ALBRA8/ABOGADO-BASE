@@ -53,9 +53,11 @@ def test_answered_with_evidence_verdict(strong_secrets, in_memory_storage):
 
 def test_abstention_verdict_is_not_approved(strong_secrets, in_memory_storage):
     """REGRESIÓN P1-6: con abstención, legal_verdict NO puede ser APPROVED."""
+    # Ley 1952 de 2019 (Código General Disciplinario): norma REAL de CO
+    # que NO está en el corpus canónico → abstención obligatoria.
     agent = _agent(strong_secrets, in_memory_storage)
     result = asyncio.run(agent.process(
-        "¿Qué establece el artículo 1602 del Código Civil sobre los contratos?",
+        "¿Qué establece el artículo 66 de la Ley 1952 de 2019 sobre el régimen disciplinario?",
         user_role="admin",
     ))
     assert result["routed_to"] == "legal_engine"
@@ -70,7 +72,7 @@ def test_verdict_values_are_from_documented_set(strong_secrets, in_memory_storag
     valid = {"ANSWERED_WITH_EVIDENCE", "ABSTAINED", "NEEDS_HUMAN_REVIEW", "GATE_BLOCKED"}
     for query in (
         "¿Qué dice el artículo 25 de la Constitución Política?",
-        "¿Qué establece el artículo 1602 del Código Civil sobre los contratos?",
+        "¿Qué establece el artículo 66 de la Ley 1952 de 2019 sobre el régimen disciplinario?",
     ):
         result = asyncio.run(agent.process(query, user_role="admin"))
         if result.get("routed_to") == "legal_engine":
@@ -85,7 +87,7 @@ def test_consistency_between_abstention_and_verdict(strong_secrets, in_memory_st
     agent = _agent(strong_secrets, in_memory_storage)
     for query in (
         "¿Qué dice el artículo 25 de la Constitución Política?",
-        "artículo 1602 del Código Civil",
+        "¿Qué establece el artículo 66 de la Ley 1952 de 2019 sobre el régimen disciplinario?",
         "¿Qué establece el artículo 23 del Código Sustantivo del Trabajo?",
     ):
         result = asyncio.run(agent.process(query, user_role="admin"))

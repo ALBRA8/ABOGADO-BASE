@@ -273,11 +273,18 @@ async def legal_knowledge_check() -> CheckResult:
         resp = await engine.query("¿Qué dice el artículo 25 de la Constitución Política?")
         stats = engine.stats()
         if resp.abstention and stats.get("legal_service") == "DEGRADED_NO_CORPUS":
+            from albra.knowledge.corpus_seed import (
+                CORPUS_VERSION,
+                canonical_corpus_documents,
+            )
+
+            n_docs = len(canonical_corpus_documents())
             return CheckResult(
                 name="legal_knowledge", status=HealthState.HEALTHY,
                 implementation_status=ImplementationStatus.IMPLEMENTED,
                 details=(
-                    "corpus canónico íntegro (12 docs); engine sin corpus "
+                    f"corpus canónico íntegro ({CORPUS_VERSION}: {n_docs} docs); "
+                    "engine sin corpus "
                     "abstiene (fail-closed); readiness reporta "
                     "DEGRADED_NO_CORPUS cuando no hay corpus"
                 ),

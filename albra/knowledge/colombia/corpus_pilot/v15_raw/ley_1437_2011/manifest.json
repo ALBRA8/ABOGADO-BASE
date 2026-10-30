@@ -1,0 +1,98 @@
+[
+ {
+  "page_filename": "ley_1437_2011.htm",
+  "page_index": 0,
+  "url": "http://www.secretariasenado.gov.co/senado/basedoc/ley_1437_2011.htm",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 122932,
+  "raw_bytes_hash": "62a3158653ee846d02cc58671515a722c4b47afd25ef64017a7b788f8bc49573",
+  "retrieval_timestamp": "2026-10-30T21:33:59+00:00",
+  "latency_ms": 2212.65,
+  "cached_at": "ley_1437_2011.htm"
+ },
+ {
+  "page_filename": "ley_1437_2011_pr001.html",
+  "page_index": 1,
+  "url": "http://www.secretariasenado.gov.co/senado/basedoc/ley_1437_2011_pr001.html",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 98437,
+  "raw_bytes_hash": "b3d190db032bea670be04c045bb420af3b5aa04362db13f500257674958d61f0",
+  "retrieval_timestamp": "2026-10-30T21:34:02+00:00",
+  "latency_ms": 2184.53,
+  "cached_at": "ley_1437_2011_pr001.html"
+ },
+ {
+  "page_filename": "ley_1437_2011_pr002.html",
+  "page_index": 2,
+  "url": "http://www.secretariasenado.gov.co/senado/basedoc/ley_1437_2011_pr002.html",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 101145,
+  "raw_bytes_hash": "72bdc65ad80d5694bd11d891af8d85fba5fad28662fc78806c00ad1c3242af01",
+  "retrieval_timestamp": "2026-10-30T21:34:04+00:00",
+  "latency_ms": 2372.29,
+  "cached_at": "ley_1437_2011_pr002.html"
+ },
+ {
+  "page_filename": "ley_1437_2011_pr003.html",
+  "page_index": 3,
+  "url": "http://www.secretariasenado.gov.co/senado/basedoc/ley_1437_2011_pr003.html",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 133191,
+  "raw_bytes_hash": "933baaf050d0954f664c19281f938e5a7b286ace62d23a2211d513cb760fbcaa",
+  "retrieval_timestamp": "2026-10-30T21:34:07+00:00",
+  "latency_ms": 2165.55,
+  "cached_at": "ley_1437_2011_pr003.html"
+ },
+ {
+  "page_filename": "ley_1437_2011_pr004.html",
+  "page_index": 4,
+  "url": "http://www.secretariasenado.gov.co/senado/basedoc/ley_1437_2011_pr004.html",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 152438,
+  "raw_bytes_hash": "6181e386e005141481d918a6a212c876234f485b96e56891336ead3f78c50def",
+  "retrieval_timestamp": "2026-10-30T21:34:10+00:00",
+  "latency_ms": 2468.29,
+  "cached_at": "ley_1437_2011_pr004.html"
+ },
+ {
+  "page_filename": "ley_1437_2011_pr005.html",
+  "page_index": 5,
+  "url": "http://www.secretariasenado.gov.co/senado/basedoc/ley_1437_2011_pr005.html",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 118615,
+  "raw_bytes_hash": "4a4e32773169ae53552281262dbfddc960f1c5733011cff916ed94dda2d7321c",
+  "retrieval_timestamp": "2026-10-30T21:34:13+00:00",
+  "latency_ms": 2154.29,
+  "cached_at": "ley_1437_2011_pr005.html"
+ },
+ {
+  "page_filename": "ley_1437_2011_pr006.html",
+  "page_index": 6,
+  "url": "http://www.secretariasenado.gov.co/senado/basedoc/ley_1437_2011_pr006.html",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 112308,
+  "raw_bytes_hash": "892c511e4ec917333bf309fecd7eb1edf575499d786544c3b773f0ffdd057aa9",
+  "retrieval_timestamp": "2026-10-30T21:34:16+00:00",
+  "latency_ms": 2552.84,
+  "cached_at": "ley_1437_2011_pr006.html"
+ },
+ {
+  "page_filename": "ley_1437_2011_pr007.html",
+  "page_index": 7,
+  "url": "http://www.secretariasenado.gov.co/senado/basedoc/ley_1437_2011_pr007.html",
+  "http_status": 200,
+  "content_type": "text/html",
+  "raw_bytes_size": 51644,
+  "raw_bytes_hash": "3fba951670cca65e35c9d982426d5c94052d6fc122f7cd15902ef3bef8e75021",
+  "retrieval_timestamp": "2026-10-30T21:34:17+00:00",
+  "latency_ms": 1238.15,
+  "cached_at": "ley_1437_2011_pr007.html"
+ }
+]

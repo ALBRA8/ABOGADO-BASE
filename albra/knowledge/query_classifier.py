@@ -53,6 +53,9 @@ class QueryClassification:
     detected_jurisdiction: str = "CO"
     detected_authority: str = ""
     temporal_hint: str = ""  # "current", "historical", "as_of:2020-01-01"
+    # Fase Producción Real: "exact" (fecha completa parseada) o "approx"
+    # (solo año → 31-dic). El consumidor DEBE declarar la aproximación.
+    temporal_precision: str = ""
     keywords: list[str] = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -66,6 +69,7 @@ class QueryClassification:
             "detected_jurisdiction": self.detected_jurisdiction,
             "detected_authority": self.detected_authority,
             "temporal_hint": self.temporal_hint,
+            "temporal_precision": self.temporal_precision,
             "keywords": self.keywords or [],
         }
 
@@ -136,17 +140,35 @@ class LegalQueryClassifier:
     # Norm by name — BLOQUE 1: captura denominaciones compuestas completas
     # Usa non-greedy + lookahead para no truncar "Código Sustantivo del Trabajo"
     # ni capturar palabras irrelevantes de la pregunta.
+    # Fase Producción Real: el lookahead también termina en referencias
+    # temporales ("el 15 de marzo de 2018", "cuando ocurrieron...") —
+    # antes capturaba "Código Civil el 15 de marzo de 2018" completo y la
+    # búsqueda exacta caía a 0 hits.
     NORM_PATTERN_NAMED = re.compile(
         r"\b(c[oó]digo|constituci[oó]n|estatuto)\b\s+"
         r"((?:[\wáéíóúÁÉÍÓÚñÑ]+\s*)+?)"
         r"(?=\s*(?:art[ií]culo|sobre|qu[eé]\s|est[aá]\s|vigente|derogad|"
-        r"modificad|¿|\?|\.|,|;|:|$))",
+        r"modificad|cuando|durante|el\s|¿|\?|\.|,|;|:|$))",
         re.IGNORECASE,
     )
     FILE_PATTERN = re.compile(
         r"expediente\s+\w+[\-\/]?\d+|radicado\s+\w+[\-\/]?\d+|T-\d+|STC-\d+|C-\d+",
         re.IGNORECASE,
     )
+
+
+    @staticmethod
+    def _kw_hit(kw: str, q: str) -> bool:
+        """Keyword match con límite de palabra para términos cortos.
+
+        "antes" como SUBSTRING matcheaba "comerciantes"/"restaurantes"
+        y producía hints históricos espurios (hallazgo de la batería
+        adversarial de la Fase Producción Real). Los keywords con
+        espacios (frases) mantienen el matching por substring.
+        """
+        if " " in kw:
+            return kw in q
+        return re.search(rf"\b{re.escape(kw)}\b", q) is not None
 
     def classify(self, query: str) -> QueryClassification:
         q = query.lower().strip()
@@ -200,13 +222,25 @@ class LegalQueryClassifier:
             result.detected_norm = file_match.group(0)
 
         # Detect temporal hint
-        if any(kw in q for kw in self.HISTORICAL_KW):
+        # Fase Producción Real: parseo de fechas en español ANTES de las
+        # keywords. Una fecha explícita ("el 15 de marzo de 2018") o un
+        # año de referencia ("hechos de 2015") producen as_of con
+        # precisión declarada — ya NO se usa "historical" cuando hay
+        # fecha (evita abstenciones espurias y el silencio histórico).
+        from albra.knowledge.temporal import parse_temporal_reference
+
+        as_of_date, precision = parse_temporal_reference(q)
+        if as_of_date is not None:
+            result.temporal_hint = f"as_of:{as_of_date.isoformat()}"
+            result.temporal_precision = precision
+        elif any(self._kw_hit(kw, q) for kw in self.HISTORICAL_KW):
             result.temporal_hint = "historical"
             # Extract year if present
             year_match = re.search(r"en\s+(19\d{2}|20\d{2})", q)
             if year_match:
                 result.temporal_hint = f"as_of:{year_match.group(1)}-12-31"
-        elif any(kw in q for kw in self.VIGENCIA_KW):
+                result.temporal_precision = "approx"
+        elif any(self._kw_hit(kw, q) for kw in self.VIGENCIA_KW):
             result.temporal_hint = "current"
 
         # Classify by keywords
@@ -214,8 +248,8 @@ class LegalQueryClassifier:
             QUERY_NORMATIVE: sum(1 for kw in self.NORMATIVE_KW if kw in q),
             QUERY_JURISPRUDENCIAL: sum(1 for kw in self.JURISPRUDENCIAL_KW if kw in q),
             QUERY_DOCTRINAL: sum(1 for kw in self.DOCTRINAL_KW if kw in q),
-            QUERY_HISTORICAL: sum(1 for kw in self.HISTORICAL_KW if kw in q),
-            QUERY_VIGENCIA: sum(1 for kw in self.VIGENCIA_KW if kw in q),
+            QUERY_HISTORICAL: sum(1 for kw in self.HISTORICAL_KW if self._kw_hit(kw, q)),
+            QUERY_VIGENCIA: sum(1 for kw in self.VIGENCIA_KW if self._kw_hit(kw, q)),
             QUERY_COMPARATIVA: sum(1 for kw in self.COMPARATIVA_KW if kw in q),
             QUERY_PROCESAL: sum(1 for kw in self.PROCESAL_KW if kw in q),
             QUERY_INTERPRETATIVA: sum(1 for kw in self.INTERPRETATIVA_KW if kw in q),

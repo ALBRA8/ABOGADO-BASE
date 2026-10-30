@@ -1,8 +1,8 @@
-"""V8.0 Fase 4 — Candidato 3: stale text V1.3 → V1.4.
+"""V8.0 Fase 4 — Candidato 3: stale text (actualizado a V1.5+V1.4 en Fase Producción Real).
 
 Verifica que exam.py NO contiene referencias stale a "V1.3" en
 strings que se presentan al usuario o al LLM, y que las limitations
-estándar reflejan correctamente la cobertura V1.4 (2107 artículos
+estándar reflejan correctamente la cobertura V1.5+V1.4 (8115 artículos
 en 5 cuerpos legales + 5 sentencias en texto reconstruido).
 
 Las únicas menciones "V1.3" permitidas son las que documentan el
@@ -71,44 +71,44 @@ def test_exam_py_no_stale_v13_in_user_facing_strings():
 def test_exam_py_step_5_summary_uses_v14():
     """Step 5 summary must say 'corpus V1.4' not 'V1.3'."""
     src = _read_exam_py()
-    assert "Fuentes encontradas en corpus V1.4" in src, (
-        "Step 5 summary should reference V1.4"
+    assert "Fuentes encontradas en corpus V1.5+V1.4" in src, (
+        "Step 5 summary should reference V1.5+V1.4"
     )
     assert "Fuentes encontradas en corpus V1.3" not in src, (
         "Step 5 summary should NOT reference V1.3"
     )
 
 
-def test_exam_py_step_7_prompt_uses_v14():
-    """Step 7 LLM prompt must say 'corpus V1.4' with corpus enumeration."""
+def test_exam_py_step_7_prompt_uses_v15():
+    """Step 7 LLM prompt must say 'corpus V1.5+V1.4' with corpus enumeration."""
     src = _read_exam_py()
-    assert "NORMAS VERIFICADAS (corpus V1.4" in src
+    assert "NORMAS VERIFICADAS (corpus V1.5+V1.4" in src
     # Step 7 prompt specifically (with article_texts variable).
     # In the source code, \n is the 2-char literal backslash-n inside an f-string.
     assert (
-        r"NORMAS VERIFICADAS (corpus V1.4 — Constitución/CGP/CPP/CST/Ley 640):\n{article_texts}"
+        r"NORMAS VERIFICADAS (corpus V1.5+V1.4 — Constitución/Civil/Penal/CPACA/Comercio/CGP/CPP/CST/Ley 640/Ley 100/Ley 80):\n{article_texts}"
         in src
-    ), "Step 7 prompt should enumerate V1.4 bodies"
+    ), "Step 7 prompt should enumerate V1.5+V1.4 bodies"
 
 
-def test_exam_py_step_10_prompt_uses_v14():
-    """Step 10 LLM prompt must say 'corpus canónico V1.4+V1.3' with corpus enumeration.
+def test_exam_py_step_10_prompt_uses_v15():
+    """Step 10 LLM prompt must say 'corpus canónico V1.5+V1.4' with corpus enumeration.
 
-    Cierre de extracción: el corpus canónico del agente es V1.4 + leyes
-    V1.3 vivas (12 docs — ver albra/knowledge/corpus_seed.py), por lo
-    que el prompt enumera TAMBIÉN Ley 100 y Ley 80 (antes solo V1.4).
+    Fase Producción Real: el corpus canónico del agente es V1.5+V1.4
+    (21 docs — ver albra/knowledge/corpus_seed.py); el prompt enumera
+    todos los cuerpos (Civil/Penal/CPACA/Comercio añadidos en V1.5).
     """
     src = _read_exam_py()
     # Step 10 prompt uses inline join with f-string
-    assert 'NORMAS VERIFICADAS (corpus canónico V1.4+V1.3 — Constitución/CGP/CPP/CST/Ley 640/Ley 100/Ley 80):\\n" + "\\n".join(' in src, (
-        "Step 10 prompt should enumerate canonical V1.4+V1.3 bodies with inline join"
+    assert 'NORMAS VERIFICADAS (corpus canónico V1.5+V1.4 — Constitución/Civil/Penal/CPACA/Comercio/CGP/CPP/CST/Ley 640/Ley 100/Ley 80):\\n" + "\\n".join(' in src, (
+        "Step 10 prompt should enumerate canonical V1.5+V1.4 bodies with inline join"
     )
 
 
-def test_exam_py_step_11_prompt_uses_v14():
-    """Step 11 LLM prompt must say 'corpus V1.4' not 'V1.3'."""
+def test_exam_py_step_11_prompt_uses_v15():
+    """Step 11 LLM prompt must say 'corpus V1.5+V1.4' not 'V1.3'."""
     src = _read_exam_py()
-    assert "estén en el corpus V1.4" in src
+    assert "estén en el corpus V1.5+V1.4" in src
     assert "estén en el corpus V1.3" not in src
 
 
@@ -140,9 +140,9 @@ def test_limitations_mention_v14_not_v13_for_corpus():
     assert "V1.3" not in corpus_lim, f"Limitation should NOT mention V1.3: {corpus_lim}"
 
 
-def test_limitations_mention_v14_corpus_coverage_with_counts():
-    """result.limitations debe enumerar los 5 cuerpos legales de V1.4
-    con sus conteos de artículos."""
+def test_limitations_mention_v15_corpus_coverage_with_counts():
+    """result.limitations debe enumerar los 11 cuerpos legales del
+    corpus canónico V1.5+V1.4 con sus conteos de artículos."""
     from tests.knowledge.test_v80_fase2_validation import _StubLLMProvider
     case = {
         "summary": "test",
@@ -155,16 +155,22 @@ def test_limitations_mention_v14_corpus_coverage_with_counts():
     guard = RealProviderGuard(provider=stub, role="lawyer")
     exam = LawyerExam(case_id="test-stale-coverage", case_facts=case, guard=guard)
     result = exam.run()
-    corpus_lims = [lim for lim in result.limitations if "corpus jurídico V1.4 cubre" in lim]
-    assert corpus_lims, f"Expected V1.4 corpus coverage limitation: {result.limitations}"
+    corpus_lims = [lim for lim in result.limitations if "corpus jurídico V1.5+V1.4 cubre" in lim]
+    assert corpus_lims, f"Expected V1.5+V1.4 corpus coverage limitation: {result.limitations}"
     lim = corpus_lims[0]
-    # Verify enumeration of 5 bodies
-    assert "Constitución 1991 (380 arts.)" in lim, f"Missing Constitución count: {lim}"
+    # Verify enumeration of the 11 bodies
+    assert "Constitución 1991 (380 " in lim, f"Missing Constitución count: {lim}"
+    assert "Código Civil (Ley 57/1887, 2673 arts.)" in lim, f"Missing Civil count: {lim}"
+    assert "Código Penal (Ley 599/2000, 598 arts.)" in lim, f"Missing Penal count: {lim}"
+    assert "CPACA (Ley 1437/2011, 321 arts.)" in lim, f"Missing CPACA count: {lim}"
+    assert "Código de Comercio (Decreto 410/1971, 2037 arts.)" in lim, f"Missing Comercio count: {lim}"
     assert "Ley 1564/2012 CGP (627 arts.)" in lim, f"Missing CGP count: {lim}"
-    assert "Ley 640/2001 (51 arts.)" in lim, f"Missing Ley 640 count: {lim}"
+    assert "Ley 640/2001 (50 arts.)" in lim, f"Missing Ley 640 count: {lim}"
     assert "Ley 906/2004 CPP (564 arts.)" in lim, f"Missing CPP count: {lim}"
-    assert "Código Sustantivo del Trabajo (485 arts.)" in lim, f"Missing CST count: {lim}"
-    assert "2107 artículos" in lim, f"Missing total count: {lim}"
+    assert "Código Sustantivo del Trabajo (485 " in lim, f"Missing CST count: {lim}"
+    assert "Ley 100/1993 (296 arts.)" in lim, f"Missing Ley 100 count: {lim}"
+    assert "Ley 80/1993 (83 arts.)" in lim, f"Missing Ley 80 count: {lim}"
+    assert "8114 artículos" in lim, f"Missing total count: {lim}"
 
 
 def test_limitations_mention_jurisprudence_in_v14():
@@ -197,7 +203,9 @@ def test_limitations_mention_jurisprudence_in_v14():
     assert "T-001" in lim, f"Limitation should mention sentencia T-001: {lim}"
     assert "445" in lim, f"Limitation should mention sentencia 445: {lim}"
     assert "100" in lim, f"Limitation should mention sentencia 100: {lim}"
-    assert "5 sentencias" in lim, f"Limitation should mention count of 5: {lim}"
+    assert "T-760" in lim, f"Limitation should mention sentencia T-760: {lim}"
+    assert "C-355" in lim, f"Limitation should mention sentencia C-355: {lim}"
+    assert "10 sentencias" in lim, f"Limitation should mention count of 10: {lim}"
 
 
 # ===== 4. V1.3 fallback logic preserved =====
@@ -242,7 +250,8 @@ def test_v14_corpus_has_expected_document_count():
     assert len(jurisprudence) == 5, f"Expected 5 sentencias, got {len(jurisprudence)}"
 
 
-def test_v14_corpus_total_articles_2107():
-    """Sanity: V1.4 has 2107 articles total (matches limitations text)."""
+def test_v14_corpus_total_articles_2106():
+    """Sanity: V1.4 has 2106 articles total (2107 previo menos 1 artículo
+    fantasma de Ley 640 corregido en la Fase Producción Real)."""
     total = sum(len(d.get("articles", [])) for _, d in ALL_DOCUMENTS_V14)
-    assert total == 2107, f"Expected 2107 total articles, got {total}"
+    assert total == 2106, f"Expected 2106 total articles, got {total}"

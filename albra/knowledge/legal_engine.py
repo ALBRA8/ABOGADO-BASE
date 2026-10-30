@@ -136,6 +136,31 @@ class LegalKnowledgeEngine:
                 needs_hitl=(abstention.fallback_action == "hitl"),
             )
 
+        # 6.5 GUARD DE VERSIÓN HISTÓRICA (Fase Producción Real).
+        # Consulta con fecha (as_of): el corpus indexa el TEXTO
+        # CONSOLIDADO. Si algún artículo citado fue modificado DESPUÉS de
+        # la fecha consultada, el texto consolidado NO es la versión
+        # aplicable — se abstiene en lugar de responder silenciosamente
+        # con texto histórico incorrecto (regla del PROMPT: nunca usar
+        # una norma actual para un hecho histórico). Si los artículos
+        # no tienen modificaciones posteriores, la respuesta procede con
+        # nota de contexto temporal explícita.
+        as_of, temporal_precision = self._parse_as_of(classification)
+        if as_of is not None:
+            guard_reason = self._historical_version_guard(verification, as_of)
+            if guard_reason:
+                self.log.warning(
+                    "legal_engine.historical_version_blocked",
+                    as_of=str(as_of), reason=guard_reason,
+                )
+                return LegalResponse(
+                    query=query_text,
+                    query_type=classification.query_type,
+                    abstention=True,
+                    abstention_reason=guard_reason,
+                    needs_hitl=True,
+                )
+
         # 8. Build citations from evidence
         citations = self._build_citations(verification)
 
@@ -211,6 +236,25 @@ class LegalKnowledgeEngine:
         )
         blocks.append(self._analysis_block(analysis))
 
+        # 10.6 CONTEXTO TEMPORAL EXPLÍCITO (as_of): la respuesta declara
+        # la fecha de referencia, su precisión y el alcance del texto
+        # consolidado — nunca un hecho histórico “en silencio”.
+        if as_of is not None:
+            blocks.append(LegalResponseBlock(
+                content_type="interpretacion",
+                text=(
+                    f"CONTEXTO TEMPORAL: fecha de referencia {as_of.isoformat()} "
+                    f"(precisión: {temporal_precision or 'approx'}). "
+                    "Los artículos citados no registran modificaciones posteriores "
+                    "a esa fecha según los marcadores del texto de la fuente. "
+                    "El corpus indexa texto consolidado: para certificar la "
+                    "versión histórica exacta se requiere ingesta de versiones "
+                    "históricas o revisión humana."
+                ),
+                confidence=0.6,
+                needs_review=(temporal_precision == "approx"),
+            ))
+
         return LegalResponse(
             query=query_text,
             query_type=classification.query_type,
@@ -269,6 +313,58 @@ class LegalKnowledgeEngine:
             top_k=10,
             min_score=0.1,
         )
+
+    def _parse_as_of(self, classification: QueryClassification) -> tuple[Any, str]:
+        """Fecha as_of de la clasificación (None si la consulta no es temporal)."""
+        from datetime import date as _date
+
+        hint = classification.temporal_hint
+        if not hint.startswith("as_of:"):
+            return None, ""
+        try:
+            return _date.fromisoformat(hint[6:]), classification.temporal_precision
+        except ValueError:
+            return None, ""
+
+    def _historical_version_guard(
+        self, verification: VerificationResult, as_of: Any
+    ) -> str | None:
+        """Guard: ¿puede el texto consolidado responder a la fecha as_of?
+
+        Para cada cita construida, resuelve el artículo en el corpus
+        canónico y escanea sus marcadores de modificación con fecha
+        efectiva POSTERIOR a as_of. Si existe uno, el texto consolidado
+        NO representa la versión aplicable a la fecha → abstención con
+        causa explícita. Sentencias (0 artículos) se excluyen.
+        """
+        from albra.knowledge.temporal import extract_modification_years
+
+        for cit in self._build_citations(verification)[:5]:
+            if cit.document_type in ("sentencia", "auto"):
+                continue
+            doc_name = cit.citation_text.split(",")[0].strip()
+            art = ""
+            if "art." in cit.citation_text:
+                art = cit.citation_text.rsplit("art.", 1)[-1].strip()
+            text = self.citation_auditor.get_article_text(
+                document_name=doc_name, article_number=art or None
+            )
+            if not text:
+                continue
+            for mod in extract_modification_years(text):
+                eff = mod.get("fecha_efectiva", "")
+                eff_year = int(eff[:4]) if eff and eff[:4].isdigit() else mod.get("anio_ley", 0)
+                if eff_year and eff_year > as_of.year:
+                    return (
+                        f"La versión del artículo citado ({cit.citation_text}) cambió "
+                        f"DESPUÉS de la fecha consultada: {mod['referencia']} "
+                        f"(efectiva: {eff}). El corpus indexa el texto consolidado "
+                        f"actual, no la versión aplicable a {as_of.isoformat()}. "
+                        "Se abstiene de presentar el texto actual como texto "
+                        "histórico (cero autoridad fantasma). Requiere ingesta de "
+                        "versiones históricas o revisión humana."
+                    )
+        return None
 
     def _build_citations(self, verification: VerificationResult) -> list[Citation]:
         """Construye citas formales de la evidencia verificada."""

@@ -167,9 +167,11 @@ def test_citation_direct_external_document_blocks(auditor_v14):
 
 
 def test_citation_direct_nonexistent_document(auditor_v14):
+    # Documento real CO que NO está en el corpus canónico (límite de
+    # cobertura): el auditor NO lo puede verificar → fail-closed.
     ok, _fidelity, _reason = auditor_v14.validate_citation_direct(
-        document_name="Código Civil de Colombia",
-        article_number="1602",
+        document_name="Código Procesal del Trabajo y de la Seguridad Social",
+        article_number="140",
         snippet="",
     )
     assert ok is False
@@ -177,10 +179,11 @@ def test_citation_direct_nonexistent_document(auditor_v14):
 
 # ===== Corpus index shape =====
 
-def test_v14_index_has_12_documents(auditor_v14):
-    """Índice canónico: V1.4 (10) + leyes V1.3 vivas (2) = 12."""
-    # number + title aliases existen; contar documentos ÚNICOS por entry
+def test_v14_index_cubre_corpus_canonico(auditor_v14):
+    """Índice del auditor = corpus canónico completo (21 documentos)."""
+    from albra.knowledge.corpus_seed import canonical_corpus_documents
+
     unique_entries = set()
     for key, entry in auditor_v14._index.items():
         unique_entries.add(id(entry))
-    assert len(unique_entries) == 12
+    assert len(unique_entries) == len(canonical_corpus_documents())

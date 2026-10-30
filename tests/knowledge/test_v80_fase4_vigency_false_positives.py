@@ -263,9 +263,16 @@ def test_vigency_consistency_with_contradiction_detector_substantive_use():
 
 # ===== 7. Count regression: total modified decreased by 1 =====
 
-def test_vigency_total_modified_in_v14_corpus_is_86_not_87():
-    """En V1.4 corpus real, el total de artículos 'modified' debe ser
-    86 (era 87 antes del fix — solo Constitución art. 62 era false positive)."""
+def test_vigency_total_modified_in_v14_corpus_tracks_restored_notes():
+    """Total de artículos 'modified' en V1.4 con las notas editoriales
+    restauradas (Fase Producción Real).
+
+    Historia: 87 → 86 (fix false positive Constitución art. 62) → 406:
+    el stripper de tags DESTRUYA las notas <Artículo subrogado/modificado
+    por...> (las confundía con HTML) y la evidencia de modificación era
+    invisible; restauradas, 406 artículos declaran su cambio con la
+    referencia de la norma modificatoria. El salto es la corrección de
+    calidad de datos, no una regresión."""
     checker = VigencyChecker()
     total_modified = 0
     for slug, doc in ALL_DOCUMENTS_V14:
@@ -275,7 +282,7 @@ def test_vigency_total_modified_in_v14_corpus_is_86_not_87():
             r = checker.check(document=doc, article=art)
             if r.status == "modified":
                 total_modified += 1
-    assert total_modified == 86, (
-        f"Expected 86 modified articles in V1.4 (after fixing art. 62 false positive). "
+    assert total_modified == 406, (
+        f"Expected 406 modified articles in V1.4 (notas editoriales restauradas). "
         f"Got: {total_modified}"
     )

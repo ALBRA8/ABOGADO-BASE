@@ -45,16 +45,19 @@ def test_hashes_del_corpus_verificados():
 
 
 def test_seed_carga_corpus_canonico():
-    """La siembra ingesta los 12 documentos canónicos sin rechazos."""
+    """La siembra ingesta los 21 documentos canónicos sin rechazos."""
     report = seed_sync()
     assert report.corpus_version == CORPUS_VERSION
-    assert report.ingested == 12, f"esperados 12 documentos, sembrados {report.ingested}"
+    assert report.ingested == 21, f"esperados 21 documentos, sembrados {report.ingested}"
     assert report.skipped_hash_mismatch == []
     assert report.rejected == []
     stats = report.stats
-    assert stats["norms"] == 7          # Constitución + 4 leyes/códigos V1.4 + 2 leyes V1.3
-    assert stats["articles"] == 2200    # 2107 arts. V1.4 + 93 arts. Ley 100/80 V1.3
-    assert stats["jurisprudence"] == 5  # 5 sentencias reales Corte Constitucional
+    assert stats["norms"] == 11          # 6 normas V1.5 + 5 normas V1.4
+    assert stats["articles"] == 8114    # 6008 arts. V1.5 + 2106 arts. V1.4
+    # (V1.4 tenía 2107: incluía 1 artículo fantasma de Ley 640 — una
+    # referencia en prosa capturada como artículo; corregido en la Fase
+    # Producción Real con el patrón case-sensitive.)
+    assert stats["jurisprudence"] == 10  # 5 sentencias V1.5 + 5 V1.4
 
 
 def test_corpus_canonico_sin_duplicar_normas():
@@ -62,9 +65,12 @@ def test_corpus_canonico_sin_duplicar_normas():
     docs = canonical_corpus_documents()
     source_ids = [d["source_id"] for _, d in docs]
     assert len(source_ids) == len(set(source_ids))
-    # La Constitución V1.1/V1.3 (subconjunto) NO se siembra: la V1.4 la subsume.
+    # Los fragmentos V1.3 de Ley 100/Ley 80 NO se siembran: los textos
+    # completos de V1.5 los subsumen (regla anti-duplicación).
     assert "const_1991_real_v11" not in source_ids
     assert "const_1991_real_v13" not in source_ids
+    assert "ley_100_1993_real_v13" not in source_ids
+    assert "ley_80_1993_real_v13" not in source_ids
     assert "constitucion_v14" in source_ids
 
 
@@ -85,9 +91,9 @@ async def test_boot_del_engine_trae_corpus_no_provider_vacio():
     """build_seeded_retriever entrega un retriever CON conocimiento."""
     retriever, report = await build_seeded_retriever()
     try:
-        assert report.ingested == 12
+        assert report.ingested == 21
         stats = retriever.provider.stats()
-        assert stats["articles"] >= 2000
+        assert stats["articles"] >= 8000
     finally:
         await retriever.provider.shutdown()
 
@@ -180,11 +186,16 @@ def test_raw_bytes_v14_preservados_en_disco():
 
 
 def test_corpus_v14_estadisticas_coherentes():
-    """V14_STATS declara 5 documentos normativos + 5 sentencias (2107 arts)."""
+    """V14_STATS declara 5 documentos normativos + 5 sentencias (2106 arts).
+
+    Fase Producción Real: 2107→2106 — el conteo previo incluía 1
+    artículo fantasma de Ley 640 (referencia en prosa capturada como
+    artículo por el patrón IGNORECASE; corregido).
+    """
     from albra.knowledge.colombia.corpus_pilot.real_corpus_v14 import V14_STATS
 
     assert V14_STATS["v14_documents"] == 5          # 5 documentos normativos V1.4
-    assert V14_STATS["v14_total_articles"] == 2107  # artículos reales V1.4
+    assert V14_STATS["v14_total_articles"] == 2106  # artículos reales V1.4
     assert V14_STATS["v14_sentencias"] == 5         # 5 sentencias reales CC
     assert V14_STATS["v14_provenance_status_default"] == "VERIFIED"
     assert V14_STATS["v14_raw_bytes_preserved"] is True
